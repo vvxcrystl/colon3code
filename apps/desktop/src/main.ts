@@ -396,7 +396,12 @@ function getSafeExternalUrl(rawUrl: unknown): string | null {
 }
 
 function getSafeTheme(rawTheme: unknown): DesktopTheme | null {
-  if (rawTheme === "light" || rawTheme === "dark" || rawTheme === "system") {
+  if (
+    rawTheme === "light" ||
+    rawTheme === "dark" ||
+    rawTheme === "crystl" ||
+    rawTheme === "system"
+  ) {
     return rawTheme;
   }
 
@@ -1698,7 +1703,7 @@ function registerIpcHandlers(): void {
       return;
     }
 
-    nativeTheme.themeSource = theme;
+    nativeTheme.themeSource = theme === "crystl" ? "dark" : theme;
   });
 
   ipcMain.removeHandler(CONTEXT_MENU_CHANNEL);

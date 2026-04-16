@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useSyncExternalStore } from "react";
+import type { DesktopTheme } from "@t3tools/contracts";
 
-type Theme = "light" | "dark" | "system";
+type Theme = "light" | "dark" | "crystl" | "system";
 type ThemeSnapshot = {
   theme: Theme;
   systemDark: boolean;
@@ -34,7 +35,7 @@ function getSystemDark() {
 function getStored(): Theme {
   if (!hasThemeStorage()) return DEFAULT_THEME_SNAPSHOT.theme;
   const raw = localStorage.getItem(STORAGE_KEY);
-  if (raw === "light" || raw === "dark" || raw === "system") return raw;
+  if (raw === "light" || raw === "dark" || raw === "crystl" || raw === "system") return raw;
   return DEFAULT_THEME_SNAPSHOT.theme;
 }
 
@@ -92,8 +93,9 @@ function applyTheme(theme: Theme, suppressTransitions = false) {
   if (suppressTransitions) {
     document.documentElement.classList.add("no-transitions");
   }
-  const isDark = theme === "dark" || (theme === "system" && getSystemDark());
+  const isDark = theme === "dark" || theme === "crystl" || (theme === "system" && getSystemDark());
   document.documentElement.classList.toggle("dark", isDark);
+  document.documentElement.classList.toggle("crystl", theme === "crystl");
   syncBrowserChromeTheme();
   syncDesktopTheme(theme);
   if (suppressTransitions) {
@@ -114,7 +116,8 @@ function syncDesktopTheme(theme: Theme) {
   }
 
   lastDesktopTheme = theme;
-  void bridge.setTheme(theme).catch(() => {
+  const desktopTheme: DesktopTheme = theme === "crystl" ? "dark" : theme;
+  void bridge.setTheme(desktopTheme).catch(() => {
     if (lastDesktopTheme === theme) {
       lastDesktopTheme = null;
     }
@@ -176,7 +179,13 @@ export function useTheme() {
   const theme = snapshot.theme;
 
   const resolvedTheme: "light" | "dark" =
-    theme === "system" ? (snapshot.systemDark ? "dark" : "light") : theme;
+    theme === "system"
+      ? snapshot.systemDark
+        ? "dark"
+        : "light"
+      : theme === "light"
+        ? "light"
+        : "dark";
 
   const setTheme = useCallback((next: Theme) => {
     if (!hasThemeStorage()) return;
