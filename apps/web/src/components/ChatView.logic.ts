@@ -251,6 +251,8 @@ export async function waitForStartedServerThread(
   return await new Promise<boolean>((resolve) => {
     let settled = false;
     let timeoutId: ReturnType<typeof globalThis.setTimeout> | null = null;
+    let pollIntervalId: ReturnType<typeof globalThis.setInterval> | null = null;
+
     const finish = (result: boolean) => {
       if (settled) {
         return;
@@ -259,16 +261,20 @@ export async function waitForStartedServerThread(
       if (timeoutId !== null) {
         globalThis.clearTimeout(timeoutId);
       }
-      unsubscribe();
+      if (pollIntervalId !== null) {
+        globalThis.clearInterval(pollIntervalId);
+      }
       resolve(result);
     };
 
-    const unsubscribe = useStore.subscribe((state) => {
-      if (!threadHasStarted(selectThreadByRef(state, threadRef))) {
-        return;
+    const check = () => {
+      const currentThread = getThread();
+      if (threadHasStarted(currentThread)) {
+        finish(true);
       }
-      finish(true);
-    });
+    };
+
+    pollIntervalId = globalThis.setInterval(check, 50);
 
     if (threadHasStarted(getThread())) {
       finish(true);

@@ -93,6 +93,10 @@ const THEME_OPTIONS = [
     value: "dark",
     label: "Dark",
   },
+  {
+    value: "crystl",
+    label: "Crystl",
+  },
 ] as const;
 
 const TIMESTAMP_FORMAT_LABELS = {
@@ -832,7 +836,12 @@ export function GeneralSettingsPanel() {
             <Select
               value={theme}
               onValueChange={(value) => {
-                if (value === "system" || value === "light" || value === "dark") {
+                if (
+                  value === "system" ||
+                  value === "light" ||
+                  value === "dark" ||
+                  value === "crystl"
+                ) {
                   setTheme(value);
                 }
               }}
