@@ -27,23 +27,15 @@
   "type": "module",
   "scripts": {
     "dev": "bun scripts/dev-runner.ts dev",
-    "dev": "bun scripts/dev-runner.ts dev",
     "dev:server": "node scripts/dev-runner.ts dev:server",
     "dev:web": "node scripts/dev-runner.ts dev:web",
     "dev:marketing": "turbo run dev --filter=@t3tools/marketing",
     "dev:desktop": "bun scripts/dev-runner.ts dev:desktop",
-    "dev:desktop": "bun scripts/dev-runner.ts dev:desktop",
     "start": "turbo run start --filter=t3",
     "start:desktop": "turbo run start --filter=@t3tools/desktop",
     "start:marketing": "turbo run preview --filter=@t3tools/marketing",
-<<<<<<< HEAD
     "start:mock-update-server": "node scripts/mock-update-server.ts",
     "build": "turbo run build",
-=======
-    "start:mock-update-server": "bun run scripts/mock-update-server.ts",
-    "build": "bun scripts/cli.ts build",
-    "build": "bun scripts/cli.ts build",
->>>>>>> 82a9a4f0 (got it working partially i think)
     "build:marketing": "turbo run build --filter=@t3tools/marketing",
     "build:desktop": "turbo run build --filter=@t3tools/desktop --filter=t3",
     "typecheck": "turbo run typecheck",
@@ -99,5 +91,8 @@
   },
   "trustedDependencies": [
     "node-pty"
-  ]
+  ],
+  "dependencies": {
+    "typescript": "^6.0.3"
+  }
 }
