@@ -29,6 +29,7 @@ import { makeManagedServerProvider } from "../makeManagedServerProvider.ts";
 import { buildServerProvider } from "../providerSnapshot.ts";
 import { CodexProvider } from "../Services/CodexProvider.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import { buildCodexCliArgs, buildCodexCliEnv } from "../codexCli.ts";
 import packageJson from "../../../package.json" with { type: "json" };
 
 const PROVIDER = "codex" as const;
@@ -214,15 +215,23 @@ export function buildCodexInitializeParams(): CodexSchema.V1InitializeParams {
 const probeCodexAppServerProvider = Effect.fn("probeCodexAppServerProvider")(function* (input: {
   readonly binaryPath: string;
   readonly homePath?: string;
+  readonly profile?: string;
+  readonly oss?: boolean;
+  readonly localProvider?: "" | "lmstudio" | "ollama";
   readonly cwd: string;
   readonly customModels?: ReadonlyArray<string>;
 }) {
+  const env = buildCodexCliEnv(input.homePath);
   const clientContext = yield* Layer.build(
     CodexClient.layerCommand({
       command: input.binaryPath,
-      args: ["app-server"],
+      args: buildCodexCliArgs(["app-server"], {
+        profile: input.profile,
+        oss: input.oss,
+        localProvider: input.localProvider,
+      }),
       cwd: input.cwd,
-      ...(input.homePath ? { env: { CODEX_HOME: input.homePath } } : {}),
+      ...(env ? { env } : {}),
     }),
   );
   const client = yield* Effect.service(CodexClient.CodexAppServerClient).pipe(
@@ -352,6 +361,9 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
   probe: (input: {
     readonly binaryPath: string;
     readonly homePath?: string;
+    readonly profile?: string;
+    readonly oss?: boolean;
+    readonly localProvider?: "" | "lmstudio" | "ollama";
     readonly cwd: string;
     readonly customModels: ReadonlyArray<string>;
   }) => Effect.Effect<
@@ -391,6 +403,9 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
   const probeResult = yield* probe({
     binaryPath: codexSettings.binaryPath,
     homePath: codexSettings.homePath,
+    profile: codexSettings.profile,
+    oss: codexSettings.oss,
+    localProvider: codexSettings.localProvider,
     cwd: process.cwd(),
     customModels: codexSettings.customModels,
   }).pipe(Effect.timeoutOption(Duration.millis(PROVIDER_PROBE_TIMEOUT_MS)), Effect.result);

@@ -171,6 +171,12 @@ const PROVIDER_STATUS_STYLES = {
   },
 } as const;
 
+const CODEX_LOCAL_PROVIDER_OPTIONS = [
+  { value: "", label: "Codex default" },
+  { value: "ollama", label: "Ollama" },
+  { value: "lmstudio", label: "LM Studio" },
+] as const;
+
 function getProviderSummary(provider: ServerProvider | undefined) {
   if (!provider) {
     return {
@@ -545,6 +551,10 @@ export function GeneralSettingsPanel() {
     codex: Boolean(
       settings.providers.codex.binaryPath !== DEFAULT_UNIFIED_SETTINGS.providers.codex.binaryPath ||
       settings.providers.codex.homePath !== DEFAULT_UNIFIED_SETTINGS.providers.codex.homePath ||
+      settings.providers.codex.profile !== DEFAULT_UNIFIED_SETTINGS.providers.codex.profile ||
+      settings.providers.codex.oss !== DEFAULT_UNIFIED_SETTINGS.providers.codex.oss ||
+      settings.providers.codex.localProvider !==
+        DEFAULT_UNIFIED_SETTINGS.providers.codex.localProvider ||
       settings.providers.codex.customModels.length > 0,
     ),
     claudeAgent: Boolean(
@@ -607,6 +617,9 @@ export function GeneralSettingsPanel() {
       serverProviders.some((provider) => provider.provider === "cursor"),
   );
   const codexHomePath = settings.providers.codex.homePath;
+  const codexProfile = settings.providers.codex.profile;
+  const codexOssEnabled = settings.providers.codex.oss;
+  const codexLocalProvider = settings.providers.codex.localProvider;
   const logsDirectoryPath = observability?.logsDirectoryPath ?? null;
   const diagnosticsDescription = (() => {
     const exports: string[] = [];
@@ -1430,6 +1443,115 @@ export function GeneralSettingsPanel() {
                               {providerCard.homeDescription}
                             </span>
                           ) : null}
+                        </label>
+                      </div>
+                    ) : null}
+
+                    {providerCard.provider === "codex" ? (
+                      <div className="border-t border-border/60 px-4 py-4 sm:px-5">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                          <div className="space-y-1">
+                            <div className="text-xs font-medium text-foreground">
+                              Use local OSS models
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              Launch Codex with `--oss` so local models like `gpt-oss:20b` can be
+                              used through T3 Code.
+                            </div>
+                          </div>
+                          <Switch
+                            checked={codexOssEnabled}
+                            onCheckedChange={(checked) =>
+                              updateSettings({
+                                providers: {
+                                  ...settings.providers,
+                                  codex: {
+                                    ...settings.providers.codex,
+                                    oss: Boolean(checked),
+                                  },
+                                },
+                              })
+                            }
+                            aria-label="Enable Codex OSS mode"
+                          />
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {providerCard.provider === "codex" && codexOssEnabled ? (
+                      <div className="border-t border-border/60 px-4 py-3 sm:px-5">
+                        <label htmlFor="provider-install-codex-local-provider" className="block">
+                          <span className="text-xs font-medium text-foreground">
+                            Local model provider
+                          </span>
+                          <Select
+                            value={codexLocalProvider}
+                            onValueChange={(value) => {
+                              if (value === "" || value === "ollama" || value === "lmstudio") {
+                                updateSettings({
+                                  providers: {
+                                    ...settings.providers,
+                                    codex: {
+                                      ...settings.providers.codex,
+                                      localProvider: value,
+                                    },
+                                  },
+                                });
+                              }
+                            }}
+                          >
+                            <SelectTrigger
+                              id="provider-install-codex-local-provider"
+                              className="mt-1.5"
+                            >
+                              <SelectValue>
+                                {CODEX_LOCAL_PROVIDER_OPTIONS.find(
+                                  (option) => option.value === codexLocalProvider,
+                                )?.label ?? "Codex default"}
+                              </SelectValue>
+                            </SelectTrigger>
+                            <SelectPopup>
+                              {CODEX_LOCAL_PROVIDER_OPTIONS.map((option) => (
+                                <SelectItem key={option.value || "default"} value={option.value}>
+                                  {option.label}
+                                </SelectItem>
+                              ))}
+                            </SelectPopup>
+                          </Select>
+                          <span className="mt-1 block text-xs text-muted-foreground">
+                            Optional override for the local provider passed through Codex with
+                            `--local-provider`.
+                          </span>
+                        </label>
+                      </div>
+                    ) : null}
+
+                    {providerCard.provider === "codex" ? (
+                      <div className="border-t border-border/60 px-4 py-3 sm:px-5">
+                        <label htmlFor="provider-install-codex-profile" className="block">
+                          <span className="text-xs font-medium text-foreground">Codex profile</span>
+                          <Input
+                            id="provider-install-codex-profile"
+                            className="mt-1.5"
+                            value={codexProfile}
+                            onChange={(event) =>
+                              updateSettings({
+                                providers: {
+                                  ...settings.providers,
+                                  codex: {
+                                    ...settings.providers.codex,
+                                    profile: event.target.value,
+                                  },
+                                },
+                              })
+                            }
+                            placeholder="config.toml profile name"
+                            spellCheck={false}
+                          />
+                          <span className="mt-1 block text-xs text-muted-foreground">
+                            Optional Codex CLI config profile. T3 Code will launch Codex with
+                            `--profile` for provider checks, sessions, and git text generation.
+                          </span>
                         </label>
                       </div>
                     ) : null}

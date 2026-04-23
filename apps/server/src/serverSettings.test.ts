@@ -53,6 +53,9 @@ it.layer(NodeServices.layer)("server settings", (it) => {
           codex: {
             binaryPath: "/usr/local/bin/codex",
             homePath: "/Users/julius/.codex",
+            profile: "work",
+            oss: true,
+            localProvider: "ollama",
           },
           claudeAgent: {
             binaryPath: "/usr/local/bin/claude",
@@ -86,6 +89,9 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         enabled: true,
         binaryPath: "/opt/homebrew/bin/codex",
         homePath: "/Users/julius/.codex",
+        profile: "work",
+        oss: true,
+        localProvider: "ollama",
         customModels: [],
       });
       assert.deepEqual(next.providers.claudeAgent, {
@@ -180,6 +186,9 @@ it.layer(NodeServices.layer)("server settings", (it) => {
           codex: {
             binaryPath: "  /opt/homebrew/bin/codex  ",
             homePath: "   ",
+            profile: "  work  ",
+            oss: true,
+            localProvider: "ollama",
           },
           claudeAgent: {
             binaryPath: "  /opt/homebrew/bin/claude  ",
@@ -196,6 +205,9 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         enabled: true,
         binaryPath: "/opt/homebrew/bin/codex",
         homePath: "",
+        profile: "work",
+        oss: true,
+        localProvider: "ollama",
         customModels: [],
       });
       assert.deepEqual(next.providers.claudeAgent, {

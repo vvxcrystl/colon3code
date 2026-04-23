@@ -30,6 +30,7 @@ import {
   CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS,
   CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS,
 } from "../CodexDeveloperInstructions.ts";
+import { buildCodexCliArgs, buildCodexCliEnv } from "../codexCli.ts";
 
 const PROVIDER = "codex" as const;
 
@@ -77,6 +78,9 @@ export interface CodexSessionRuntimeOptions {
   readonly threadId: ThreadId;
   readonly binaryPath: string;
   readonly homePath?: string;
+  readonly profile?: string;
+  readonly oss?: boolean;
+  readonly localProvider?: "" | "lmstudio" | "ollama";
   readonly cwd: string;
   readonly runtimeMode: RuntimeMode;
   readonly model?: string;
@@ -678,14 +682,23 @@ export const makeCodexSessionRuntime = (
     const pendingUserInputsRef = yield* Ref.make(new Map<ApprovalRequestId, PendingUserInput>());
     const collabReceiverTurnsRef = yield* Ref.make(new Map<string, TurnId>());
     const closedRef = yield* Ref.make(false);
+    const env = buildCodexCliEnv(options.homePath);
 
     const child = yield* spawner
       .spawn(
-        ChildProcess.make(options.binaryPath, ["app-server"], {
-          cwd: options.cwd,
-          ...(options.homePath ? { env: { ...process.env, CODEX_HOME: options.homePath } } : {}),
-          shell: process.platform === "win32",
-        }),
+        ChildProcess.make(
+          options.binaryPath,
+          buildCodexCliArgs(["app-server"], {
+            profile: options.profile,
+            oss: options.oss,
+            localProvider: options.localProvider,
+          }),
+          {
+            cwd: options.cwd,
+            ...(env ? { env } : {}),
+            shell: process.platform === "win32",
+          },
+        ),
       )
       .pipe(
         Effect.provideService(Scope.Scope, runtimeScope),

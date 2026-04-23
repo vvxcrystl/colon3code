@@ -1365,6 +1365,9 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
           cwd: input.cwd ?? process.cwd(),
           binaryPath: codexSettings.binaryPath,
           ...(codexSettings.homePath ? { homePath: codexSettings.homePath } : {}),
+          ...(codexSettings.profile ? { profile: codexSettings.profile } : {}),
+          ...(codexSettings.oss ? { oss: codexSettings.oss } : {}),
+          ...(codexSettings.localProvider ? { localProvider: codexSettings.localProvider } : {}),
           ...(Schema.is(CodexResumeCursorSchema)(input.resumeCursor)
             ? { resumeCursor: input.resumeCursor }
             : {}),

@@ -31,6 +31,9 @@ function makeFakeCodexBinary(
     exitCode?: number;
     stderr?: string;
     requireImage?: boolean;
+    requireProfile?: string;
+    requireOss?: boolean;
+    requireLocalProvider?: "ollama" | "lmstudio";
     requireFastServiceTier?: boolean;
     requireReasoningEffort?: string;
     forbidReasoningEffort?: boolean;
@@ -51,9 +54,29 @@ function makeFakeCodexBinary(
         "#!/bin/sh",
         'output_path=""',
         'seen_image="0"',
+        'seen_profile=""',
+        'seen_oss="0"',
+        'seen_local_provider=""',
         'seen_fast_service_tier="0"',
         'seen_reasoning_effort=""',
         "while [ $# -gt 0 ]; do",
+        '  if [ "$1" = "--oss" ]; then',
+        '    seen_oss="1"',
+        "    shift",
+        "    continue",
+        "  fi",
+        '  if [ "$1" = "--local-provider" ]; then',
+        "    shift",
+        '    seen_local_provider="$1"',
+        "    shift",
+        "    continue",
+        "  fi",
+        '  if [ "$1" = "--profile" ]; then',
+        "    shift",
+        '    seen_profile="$1"',
+        "    shift",
+        "    continue",
+        "  fi",
         '  if [ "$1" = "--image" ]; then',
         "    shift",
         '    if [ -n "$1" ]; then',
@@ -89,6 +112,30 @@ function makeFakeCodexBinary(
               'if [ "$seen_image" != "1" ]; then',
               '  printf "%s\\n" "missing --image input" >&2',
               `  exit 2`,
+              "fi",
+            ]
+          : []),
+        ...(input.requireProfile !== undefined
+          ? [
+              `if [ "$seen_profile" != "${input.requireProfile}" ]; then`,
+              '  printf "%s\\n" "missing expected --profile value: $seen_profile" >&2',
+              `  exit 8`,
+              "fi",
+            ]
+          : []),
+        ...(input.requireOss
+          ? [
+              'if [ "$seen_oss" != "1" ]; then',
+              '  printf "%s\\n" "missing --oss flag" >&2',
+              `  exit 9`,
+              "fi",
+            ]
+          : []),
+        ...(input.requireLocalProvider !== undefined
+          ? [
+              `if [ "$seen_local_provider" != "${input.requireLocalProvider}" ]; then`,
+              '  printf "%s\\n" "missing expected --local-provider value: $seen_local_provider" >&2',
+              `  exit 10`,
               "fi",
             ]
           : []),
@@ -155,6 +202,9 @@ function withFakeCodexEnv<A, E, R>(
     exitCode?: number;
     stderr?: string;
     requireImage?: boolean;
+    requireProfile?: string;
+    requireOss?: boolean;
+    requireLocalProvider?: "ollama" | "lmstudio";
     requireFastServiceTier?: boolean;
     requireReasoningEffort?: string;
     forbidReasoningEffort?: boolean;
@@ -174,18 +224,30 @@ function withFakeCodexEnv<A, E, R>(
         providers: {
           codex: {
             binaryPath: codexPath,
+            ...(input.requireProfile ? { profile: input.requireProfile } : {}),
+            ...(input.requireOss ? { oss: true } : {}),
+            ...(input.requireLocalProvider ? { localProvider: input.requireLocalProvider } : {}),
           },
         },
       });
-      return { serverSettings, previousBinaryPath: previousSettings.providers.codex.binaryPath };
+      return {
+        serverSettings,
+        previousBinaryPath: previousSettings.providers.codex.binaryPath,
+        previousProfile: previousSettings.providers.codex.profile,
+        previousOss: previousSettings.providers.codex.oss,
+        previousLocalProvider: previousSettings.providers.codex.localProvider,
+      };
     }),
     () => effect,
-    ({ serverSettings, previousBinaryPath }) =>
+    ({ serverSettings, previousBinaryPath, previousProfile, previousOss, previousLocalProvider }) =>
       serverSettings
         .updateSettings({
           providers: {
             codex: {
               binaryPath: previousBinaryPath,
+              profile: previousProfile,
+              oss: previousOss,
+              localProvider: previousLocalProvider,
             },
           },
         })
@@ -275,6 +337,56 @@ it.layer(CodexTextGenerationTestLayer)("CodexTextGenerationLive", (it) => {
           stagedSummary: "M README.md",
           stagedPatch: "diff --git a/README.md b/README.md",
           modelSelection: DEFAULT_TEST_MODEL_SELECTION,
+        });
+      }),
+    ),
+  );
+
+  it.effect("passes the configured codex profile to codex exec", () =>
+    withFakeCodexEnv(
+      {
+        output: JSON.stringify({
+          subject: "Add important change",
+          body: "",
+        }),
+        requireProfile: "work",
+      },
+      Effect.gen(function* () {
+        const textGeneration = yield* TextGeneration;
+
+        yield* textGeneration.generateCommitMessage({
+          cwd: process.cwd(),
+          branch: "feature/codex-effect",
+          stagedSummary: "M README.md",
+          stagedPatch: "diff --git a/README.md b/README.md",
+          modelSelection: DEFAULT_TEST_MODEL_SELECTION,
+        });
+      }),
+    ),
+  );
+
+  it.effect("passes Codex OSS flags to codex exec", () =>
+    withFakeCodexEnv(
+      {
+        output: JSON.stringify({
+          subject: "Add important change",
+          body: "",
+        }),
+        requireOss: true,
+        requireLocalProvider: "ollama",
+      },
+      Effect.gen(function* () {
+        const textGeneration = yield* TextGeneration;
+
+        yield* textGeneration.generateCommitMessage({
+          cwd: process.cwd(),
+          branch: "feature/codex-effect",
+          stagedSummary: "M README.md",
+          stagedPatch: "diff --git a/README.md b/README.md",
+          modelSelection: {
+            provider: "codex",
+            model: "gpt-oss:20b",
+          },
         });
       }),
     ),

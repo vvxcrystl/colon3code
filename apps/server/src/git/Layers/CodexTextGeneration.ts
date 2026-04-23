@@ -8,7 +8,6 @@ import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@t3tools/shar
 
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
-import { expandHomePath } from "../../pathExpansion.ts";
 import { TextGenerationError } from "@t3tools/contracts";
 import {
   type BranchNameGenerationInput,
@@ -30,6 +29,7 @@ import {
   toJsonSchemaObject,
 } from "../Utils.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import { buildCodexCliArgs, buildCodexCliEnv } from "../../provider/codexCli.ts";
 
 const CODEX_GIT_TEXT_GENERATION_REASONING_EFFORT = "low";
 const CODEX_TIMEOUT_MS = 180_000;
@@ -156,33 +156,36 @@ const makeCodexTextGeneration = Effect.gen(function* () {
     const runCodexCommand = Effect.fn("runCodexJson.runCodexCommand")(function* () {
       const reasoningEffort =
         modelSelection.options?.reasoningEffort ?? CODEX_GIT_TEXT_GENERATION_REASONING_EFFORT;
+      const env = buildCodexCliEnv(codexSettings?.homePath);
       const command = ChildProcess.make(
         codexSettings?.binaryPath || "codex",
-        [
-          "exec",
-          "--ephemeral",
-          "--skip-git-repo-check",
-          "-s",
-          "read-only",
-          "--model",
-          modelSelection.model,
-          "--config",
-          `model_reasoning_effort="${reasoningEffort}"`,
-          ...(modelSelection.options?.fastMode ? ["--config", `service_tier="fast"`] : []),
-          "--output-schema",
-          schemaPath,
-          "--output-last-message",
-          outputPath,
-          ...imagePaths.flatMap((imagePath) => ["--image", imagePath]),
-          "-",
-        ],
-        {
-          env: {
-            ...process.env,
-            ...(codexSettings?.homePath
-              ? { CODEX_HOME: expandHomePath(codexSettings.homePath) }
-              : {}),
+        buildCodexCliArgs(
+          [
+            "exec",
+            "--ephemeral",
+            "--skip-git-repo-check",
+            "-s",
+            "read-only",
+            "--model",
+            modelSelection.model,
+            "--config",
+            `model_reasoning_effort="${reasoningEffort}"`,
+            ...(modelSelection.options?.fastMode ? ["--config", `service_tier="fast"`] : []),
+            "--output-schema",
+            schemaPath,
+            "--output-last-message",
+            outputPath,
+            ...imagePaths.flatMap((imagePath) => ["--image", imagePath]),
+            "-",
+          ],
+          {
+            profile: codexSettings?.profile,
+            oss: codexSettings?.oss,
+            localProvider: codexSettings?.localProvider,
           },
+        ),
+        {
+          ...(env ? { env } : {}),
           cwd,
           shell: process.platform === "win32",
           stdin: {

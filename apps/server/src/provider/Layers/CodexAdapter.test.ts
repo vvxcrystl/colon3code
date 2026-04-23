@@ -262,6 +262,33 @@ validationLayer("CodexAdapterLive validation", (it) => {
       });
     }),
   );
+
+  it.effect("passes configured codex launch options into the runtime", () =>
+    Effect.gen(function* () {
+      validationRuntimeFactory.factory.mockClear();
+      const serverSettings = yield* ServerSettingsService;
+      yield* serverSettings.updateSettings({
+        providers: {
+          codex: {
+            profile: "work",
+            oss: true,
+            localProvider: "ollama",
+          },
+        },
+      });
+
+      const adapter = yield* CodexAdapter;
+      yield* adapter.startSession({
+        provider: "codex",
+        threadId: asThreadId("thread-profile"),
+        runtimeMode: "full-access",
+      });
+
+      assert.equal(validationRuntimeFactory.factory.mock.calls[0]?.[0].profile, "work");
+      assert.equal(validationRuntimeFactory.factory.mock.calls[0]?.[0].oss, true);
+      assert.equal(validationRuntimeFactory.factory.mock.calls[0]?.[0].localProvider, "ollama");
+    }),
+  );
 });
 
 const sessionRuntimeFactory = makeRuntimeFactory();

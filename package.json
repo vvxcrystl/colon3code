@@ -57,12 +57,13 @@
     "clean": "rm -rf node_modules apps/*/node_modules packages/*/node_modules apps/*/dist apps/*/dist-electron packages/*/dist .turbo apps/*/.turbo packages/*/.turbo",
     "sync:vscode-icons": "node scripts/sync-vscode-icons.mjs"
   },
+  "dependencies": {
+    "typescript": "^6.0.3"
+  },
   "devDependencies": {
     "@types/node": "catalog:",
     "oxfmt": "^0.40.0",
     "oxlint": "^1.55.0",
-    "tsdown": "^0.21.8",
-    "turbo": "^2.9.6",
     "tsdown": "^0.21.8",
     "turbo": "^2.9.6",
     "vitest": "catalog:"
@@ -75,7 +76,6 @@
     "@effect/sql-sqlite-bun": "catalog:",
     "@effect/vitest": "catalog:",
     "effect": "catalog:",
-    "rolldown-plugin-dts": "^0.22.1",
     "rolldown-plugin-dts": "^0.22.1",
     "vite": "^8.0.0"
   },
@@ -91,8 +91,5 @@
   },
   "trustedDependencies": [
     "node-pty"
-  ],
-  "dependencies": {
-    "typescript": "^6.0.3"
-  }
+  ]
 }

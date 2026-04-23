@@ -718,4 +718,35 @@ describe("GeneralSettingsPanel observability", () => {
     await expect.element(page.getByText("OpenCode server password")).toBeInTheDocument();
     await expect.element(page.getByPlaceholder("Server password")).toBeInTheDocument();
   });
+
+  it("shows a Codex profile field in provider settings", async () => {
+    setServerConfigSnapshot(createBaseServerConfig());
+
+    mounted = await render(
+      <AppAtomRegistryProvider>
+        <GeneralSettingsPanel />
+      </AppAtomRegistryProvider>,
+    );
+
+    await page.getByLabelText("Toggle Codex details").click();
+
+    await expect.element(page.getByText("Codex profile")).toBeInTheDocument();
+    await expect.element(page.getByPlaceholder("config.toml profile name")).toBeInTheDocument();
+  });
+
+  it("shows Codex OSS controls in provider settings", async () => {
+    setServerConfigSnapshot(createBaseServerConfig());
+
+    mounted = await render(
+      <AppAtomRegistryProvider>
+        <GeneralSettingsPanel />
+      </AppAtomRegistryProvider>,
+    );
+
+    await page.getByLabelText("Toggle Codex details").click();
+
+    await expect.element(page.getByText("Use local OSS models")).toBeInTheDocument();
+    await page.getByLabelText("Enable Codex OSS mode").click();
+    await expect.element(page.getByText("Local model provider")).toBeInTheDocument();
+  });
 });
