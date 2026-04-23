@@ -9,7 +9,12 @@ import {
   DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER,
   OpenCodeModelOptions,
 } from "./model.ts";
-import { ModelSelection, ProviderKind } from "./orchestration.ts";
+import {
+  ModelSelection,
+  ProviderInteractionMode,
+  ProviderKind,
+  RuntimeMode,
+} from "./orchestration.ts";
 
 // ── Client Settings (local-only) ───────────────────────────────
 
@@ -33,6 +38,43 @@ export const SidebarProjectGroupingMode = Schema.Literals([
 export type SidebarProjectGroupingMode = typeof SidebarProjectGroupingMode.Type;
 export const DEFAULT_SIDEBAR_PROJECT_GROUPING_MODE: SidebarProjectGroupingMode = "repository";
 
+// ── Profiles ─────────────────────────────────────────────────────
+
+export const ProfileModelOptions = Schema.Union([
+  Schema.Struct({
+    provider: Schema.Literal("codex"),
+    options: Schema.optionalKey(CodexModelOptions),
+  }),
+  Schema.Struct({
+    provider: Schema.Literal("claudeAgent"),
+    options: Schema.optionalKey(ClaudeModelOptions),
+  }),
+  Schema.Struct({
+    provider: Schema.Literal("cursor"),
+    options: Schema.optionalKey(CursorModelOptions),
+  }),
+  Schema.Struct({
+    provider: Schema.Literal("opencode"),
+    options: Schema.optionalKey(OpenCodeModelOptions),
+  }),
+]);
+export type ProfileModelOptions = typeof ProfileModelOptions.Type;
+
+export const ProfileSchema = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  name: TrimmedNonEmptyString,
+  providerKind: ProviderKind,
+  model: TrimmedNonEmptyString,
+  options: Schema.optionalKey(ProfileModelOptions),
+  runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(Effect.succeed("full-access" as const))),
+  interactionMode: ProviderInteractionMode.pipe(
+    Schema.withDecodingDefault(Effect.succeed("default" as const)),
+  ),
+});
+export type Profile = typeof ProfileSchema.Type;
+
+// ── Client Settings Schema (uses ProfileSchema above) ──────────
+
 export const ClientSettingsSchema = Schema.Struct({
   confirmThreadArchive: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   confirmThreadDelete: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
@@ -43,6 +85,7 @@ export const ClientSettingsSchema = Schema.Struct({
       model: TrimmedNonEmptyString,
     }),
   ).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+  profiles: Schema.Array(ProfileSchema).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
   sidebarProjectGroupingMode: SidebarProjectGroupingMode.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_PROJECT_GROUPING_MODE)),
   ),
@@ -104,6 +147,7 @@ export const CursorSettings = Schema.Struct({
   customModels: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
 });
 export type CursorSettings = typeof CursorSettings.Type;
+
 export const OpenCodeSettings = Schema.Struct({
   enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   binaryPath: makeBinaryPathSetting("opencode"),
@@ -168,7 +212,7 @@ export const DEFAULT_UNIFIED_SETTINGS: UnifiedSettings = {
   ...DEFAULT_CLIENT_SETTINGS,
 };
 
-// ── Server Settings Patch (replace with a Schema.deepPartial if available) ──────────────────────────────────────────
+// ── Settings Patch (replace with a Schema.deepPartial if available) ──────────────────────────────────────────
 
 const CodexModelOptionsPatch = Schema.Struct({
   reasoningEffort: Schema.optionalKey(CodexModelOptions.fields.reasoningEffort),
@@ -281,6 +325,7 @@ export const ClientSettingsPatch = Schema.Struct({
       }),
     ),
   ),
+  profiles: Schema.optionalKey(Schema.Array(ProfileSchema)),
   sidebarProjectGroupingMode: Schema.optionalKey(SidebarProjectGroupingMode),
   sidebarProjectGroupingOverrides: Schema.optionalKey(
     Schema.Record(TrimmedNonEmptyString, SidebarProjectGroupingMode),
