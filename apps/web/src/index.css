@@ -785,6 +785,25 @@ html.crystl [data-slot="sidebar-inset"] {
   background-color: #17151d;
 }
 
+html.crystl .dropdown-glass {
+  background: color-mix(in srgb, #201d27 96%, transparent);
+  border-color: rgb(216 180 254 / 16%);
+}
+
+html.crystl .model-picker-surface.model-picker-surface {
+  --background: #201d27;
+  --popover: #201d27;
+  --muted: #292433;
+  --accent: #30293b;
+  background: #201d27;
+  box-shadow: 0 18px 44px -18px rgb(7 3 10 / 82%);
+}
+
+html.crystl [data-model-picker-sidebar="true"] {
+  background: #19151f;
+  border-right: 1px solid rgb(216 180 254 / 10%);
+}
+
 /* Give both navigation implementations the same cool graphite surface. The
    version attribute remains useful for layout-specific styling, but color is
    shared so switching the beta does not switch visual systems. */
