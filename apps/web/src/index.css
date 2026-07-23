@@ -747,13 +747,13 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
 
 html.crystl {
   color-scheme: dark;
-  --background: #160d1c;
-  --app-chrome-background: #160d1c;
-  --surface-raised: #241e2a;
+  --background: #17151d;
+  --app-chrome-background: #17151d;
+  --surface-raised: #201d27;
   --foreground: var(--color-neutral-200);
-  --card: #1e1b24;
+  --card: #1e1c26;
   --card-foreground: var(--color-neutral-200);
-  --popover: #1e1b24;
+  --popover: #201d27;
   --popover-foreground: var(--color-neutral-200);
   --primary: oklch(0.65 0.22 292);
   --primary-foreground: var(--color-white);
@@ -777,12 +777,12 @@ html.crystl {
 }
 
 html.crystl [data-slot="sidebar-inset"] {
-  --background: #160d1c;
-  --app-chrome-background: #160d1c;
-  --surface-raised: #211428;
-  --card: #211428;
-  --popover: #24172c;
-  background-color: #160d1c;
+  --background: #17151d;
+  --app-chrome-background: #17151d;
+  --surface-raised: #201d27;
+  --card: #1e1c26;
+  --popover: #201d27;
+  background-color: #17151d;
 }
 
 /* Give both navigation implementations the same cool graphite surface. The
