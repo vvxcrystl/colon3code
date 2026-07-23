@@ -3,7 +3,7 @@ import { safeErrorLogAttributes } from "@t3tools/client-runtime/errors";
 import * as Schema from "effect/Schema";
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 
-const ThemePreference = Schema.Literals(["light", "dark", "system"]);
+const ThemePreference = Schema.Literals(["light", "dark", "crystl", "system"]);
 type Theme = typeof ThemePreference.Type;
 type ThemeSnapshot = {
   theme: Theme;
@@ -81,7 +81,7 @@ export function readThemePreference(): Theme {
       cause,
     });
   }
-  if (raw === "light" || raw === "dark" || raw === "system") return raw;
+  if (raw === "light" || raw === "dark" || raw === "crystl" || raw === "system") return raw;
   return DEFAULT_THEME_SNAPSHOT.theme;
 }
 
@@ -184,8 +184,9 @@ function applyTheme(theme: Theme, suppressTransitions = false) {
   if (suppressTransitions) {
     document.documentElement.classList.add("no-transitions");
   }
-  const isDark = theme === "dark" || (theme === "system" && systemDark);
+  const isDark = theme === "dark" || theme === "crystl" || (theme === "system" && systemDark);
   document.documentElement.classList.toggle("dark", isDark);
+  document.documentElement.classList.toggle("crystl", theme === "crystl");
   lastAppliedTheme = { theme, systemDark };
   syncBrowserChromeTheme();
   syncDesktopTheme(theme);
@@ -288,7 +289,13 @@ export function useTheme() {
   const theme = snapshot.theme;
 
   const resolvedTheme: "light" | "dark" =
-    theme === "system" ? (snapshot.systemDark ? "dark" : "light") : theme;
+    theme === "system"
+      ? snapshot.systemDark
+        ? "dark"
+        : "light"
+      : theme === "light"
+        ? "light"
+        : "dark";
 
   const setTheme = useCallback((next: Theme) => {
     if (typeof window === "undefined") return;

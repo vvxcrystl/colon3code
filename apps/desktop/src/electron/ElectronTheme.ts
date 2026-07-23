@@ -35,7 +35,7 @@ export const make = ElectronTheme.of({
   setSource: (theme) =>
     Effect.try({
       try: () => {
-        Electron.nativeTheme.themeSource = theme;
+        Electron.nativeTheme.themeSource = theme === "crystl" ? "dark" : theme;
       },
       catch: (cause) => new ElectronThemeSetSourceError({ source: theme, cause }),
     }),

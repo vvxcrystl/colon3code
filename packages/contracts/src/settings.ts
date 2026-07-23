@@ -218,6 +218,33 @@ export const CodexSettings = makeProviderSettingsSchema(
         },
       }),
     ),
+    profile: Schema.optionalKey(
+      TrimmedString.pipe(
+        Schema.annotateKey({
+          title: "Codex profile",
+          description: "Optional Codex CLI profile to use for this provider instance.",
+          providerSettingsForm: { placeholder: "work", clearWhenEmpty: "omit" },
+        }),
+      ),
+    ),
+    oss: Schema.optionalKey(
+      Schema.Boolean.pipe(
+        Schema.annotateKey({
+          title: "OSS mode",
+          description: "Run Codex with --oss for a local or self-hosted model provider.",
+          providerSettingsForm: { control: "switch", clearWhenEmpty: "omit" },
+        }),
+      ),
+    ),
+    localProvider: Schema.optionalKey(
+      Schema.Union([Schema.Literal(""), Schema.Literal("lmstudio"), Schema.Literal("ollama")]).pipe(
+        Schema.annotateKey({
+          title: "Local provider",
+          description: "Optional provider for OSS mode: lmstudio or ollama.",
+          providerSettingsForm: { placeholder: "ollama", clearWhenEmpty: "omit" },
+        }),
+      ),
+    ),
     launchArgs: TrimmedString.pipe(
       Schema.withDecodingDefault(Effect.succeed("")),
       Schema.annotateKey({
@@ -231,7 +258,15 @@ export const CodexSettings = makeProviderSettingsSchema(
     ),
   },
   {
-    order: ["binaryPath", "homePath", "shadowHomePath", "launchArgs"],
+    order: [
+      "binaryPath",
+      "homePath",
+      "shadowHomePath",
+      "profile",
+      "oss",
+      "localProvider",
+      "launchArgs",
+    ],
   },
 );
 export type CodexSettings = typeof CodexSettings.Type;
@@ -503,6 +538,11 @@ const CodexSettingsPatch = Schema.Struct({
   binaryPath: Schema.optionalKey(TrimmedString),
   homePath: Schema.optionalKey(TrimmedString),
   shadowHomePath: Schema.optionalKey(TrimmedString),
+  profile: Schema.optionalKey(TrimmedString),
+  oss: Schema.optionalKey(Schema.Boolean),
+  localProvider: Schema.optionalKey(
+    Schema.Union([Schema.Literal(""), Schema.Literal("lmstudio"), Schema.Literal("ollama")]),
+  ),
   launchArgs: Schema.optionalKey(TrimmedString),
   customModels: Schema.optionalKey(Schema.Array(Schema.String)),
 });

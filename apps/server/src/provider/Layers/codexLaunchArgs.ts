@@ -10,7 +10,16 @@ export const resolveCodexLaunchArgs = (
 export const codexLaunchArgv = (launchArgs?: string): ReadonlyArray<string> =>
   tokenizeCliArgs(launchArgs);
 
-export const codexAppServerArgs = (launchArgs?: string) => [
+export interface CodexCliProfileOptions {
+  readonly profile?: string | undefined;
+  readonly oss?: boolean | undefined;
+  readonly localProvider?: "" | "lmstudio" | "ollama" | undefined;
+}
+
+export const codexAppServerArgs = (launchArgs?: string, options: CodexCliProfileOptions = {}) => [
+  ...(options.profile?.trim() ? ["--profile", options.profile.trim()] : []),
+  ...(options.oss ? ["--oss"] : []),
+  ...(options.localProvider ? ["--local-provider", options.localProvider] : []),
   "app-server",
   ...codexLaunchArgv(launchArgs),
 ];
@@ -42,7 +51,8 @@ export const codexExecLaunchArgs = (launchArgs?: string) => {
 export const codexSessionAppServerArgs = (
   appServerArgs: ReadonlyArray<string> | undefined,
   launchArgs: string | undefined,
+  options?: CodexCliProfileOptions,
 ) => {
-  const launchAppServerArgs = codexAppServerArgs(launchArgs);
+  const launchAppServerArgs = codexAppServerArgs(launchArgs, options);
   return appServerArgs ? [...launchAppServerArgs, ...appServerArgs] : launchAppServerArgs;
 };

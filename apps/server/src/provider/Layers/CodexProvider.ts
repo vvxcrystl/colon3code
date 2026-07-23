@@ -316,6 +316,9 @@ export function buildCodexInitializeParams(): CodexSchema.V1InitializeParams {
 const probeCodexAppServerProvider = Effect.fn("probeCodexAppServerProvider")(function* (input: {
   readonly binaryPath: string;
   readonly homePath?: string;
+  readonly profile?: string | undefined;
+  readonly oss?: boolean | undefined;
+  readonly localProvider?: "" | "lmstudio" | "ollama" | undefined;
   readonly launchArgs?: string;
   readonly cwd: string;
   readonly customModels?: ReadonlyArray<string>;
@@ -333,7 +336,7 @@ const probeCodexAppServerProvider = Effect.fn("probeCodexAppServerProvider")(fun
   };
   const spawnCommand = yield* resolveSpawnCommand(
     input.binaryPath,
-    codexAppServerArgs(input.launchArgs),
+    codexAppServerArgs(input.launchArgs, input),
     {
       env: environment,
       extendEnv: true,
@@ -499,6 +502,9 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
   probe: (input: {
     readonly binaryPath: string;
     readonly homePath?: string;
+    readonly profile?: string | undefined;
+    readonly oss?: boolean | undefined;
+    readonly localProvider?: "" | "lmstudio" | "ollama" | undefined;
     readonly launchArgs?: string;
     readonly cwd: string;
     readonly customModels: ReadonlyArray<string>;
@@ -538,6 +544,9 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
   const probeResult = yield* probe({
     binaryPath: codexSettings.binaryPath,
     homePath: codexSettings.homePath,
+    profile: codexSettings.profile,
+    oss: codexSettings.oss,
+    localProvider: codexSettings.localProvider,
     launchArgs: resolveCodexLaunchArgs(codexSettings.launchArgs, resolvedEnvironment),
     cwd: process.cwd(),
     customModels: codexSettings.customModels,

@@ -98,6 +98,9 @@ export interface CodexSessionRuntimeOptions {
   readonly providerInstanceId?: ProviderInstanceId;
   readonly binaryPath: string;
   readonly homePath?: string;
+  readonly profile?: string;
+  readonly oss?: boolean;
+  readonly localProvider?: "" | "lmstudio" | "ollama";
   readonly launchArgs?: string;
   readonly environment?: NodeJS.ProcessEnv;
   readonly cwd: string;
@@ -719,7 +722,11 @@ export const makeCodexSessionRuntime = (
       ...(resolvedHomePath ? { CODEX_HOME: resolvedHomePath } : {}),
     };
     const extendEnv = options.environment === undefined;
-    const appServerArgs = codexSessionAppServerArgs(options.appServerArgs, options.launchArgs);
+    const appServerArgs = codexSessionAppServerArgs(options.appServerArgs, options.launchArgs, {
+      profile: options.profile,
+      oss: options.oss,
+      localProvider: options.localProvider,
+    });
     const spawnCommand = yield* resolveSpawnCommand(options.binaryPath, appServerArgs, {
       env,
       extendEnv,
