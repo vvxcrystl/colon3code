@@ -88,36 +88,6 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   --workspace-titlebar-control-gap: 0.75rem;
 }
 
-html.crystl {
-  color-scheme: dark;
-  --background: #19151c;
-  --app-chrome-background: #19151c;
-  --foreground: var(--color-neutral-200);
-  --card: #1e1b24;
-  --card-foreground: var(--color-neutral-200);
-  --popover: #1e1b24;
-  --popover-foreground: var(--color-neutral-200);
-  --primary: oklch(0.588 0.217 264);
-  --primary-foreground: var(--color-white);
-  --secondary: --alpha(var(--color-white) / 6%);
-  --secondary-foreground: var(--color-neutral-200);
-  --muted: --alpha(var(--color-white) / 6%);
-  --muted-foreground: var(--color-neutral-400);
-  --accent: --alpha(var(--color-white) / 6%);
-  --accent-foreground: var(--color-neutral-200);
-  --destructive: color-mix(in srgb, var(--color-red-500) 90%, var(--color-white));
-  --border: --alpha(var(--color-white) / 10%);
-  --input: --alpha(var(--color-white) / 12%);
-  --ring: oklch(0.588 0.217 264);
-  --destructive-foreground: var(--color-red-400);
-  --info: var(--color-blue-500);
-  --info-foreground: var(--color-blue-400);
-  --success: var(--color-emerald-500);
-  --success-foreground: var(--color-emerald-400);
-  --warning: var(--color-amber-500);
-  --warning-foreground: var(--color-amber-400);
-}
-
 [data-slot="sidebar-wrapper"] {
   --workspace-titlebar-content-left: calc(
     var(--workspace-controls-left) + var(--workspace-titlebar-control-size) +
@@ -775,6 +745,37 @@ html.crystl {
   }
 }
 
+html.crystl {
+  color-scheme: dark;
+  --background: #19151c;
+  --app-chrome-background: #19151c;
+  --surface-raised: #241e2a;
+  --foreground: var(--color-neutral-200);
+  --card: #1e1b24;
+  --card-foreground: var(--color-neutral-200);
+  --popover: #1e1b24;
+  --popover-foreground: var(--color-neutral-200);
+  --primary: oklch(0.65 0.22 292);
+  --primary-foreground: var(--color-white);
+  --secondary: color-mix(in srgb, #8b5cf6 10%, transparent);
+  --secondary-foreground: var(--color-neutral-200);
+  --muted: color-mix(in srgb, #8b5cf6 9%, transparent);
+  --muted-foreground: #b8aebf;
+  --accent: color-mix(in srgb, #a855f7 12%, transparent);
+  --accent-foreground: #f5effa;
+  --destructive: color-mix(in srgb, var(--color-red-500) 90%, var(--color-white));
+  --border: rgb(216 180 254 / 14%);
+  --input: rgb(216 180 254 / 18%);
+  --ring: oklch(0.65 0.22 292);
+  --destructive-foreground: var(--color-red-400);
+  --info: var(--color-blue-500);
+  --info-foreground: var(--color-blue-400);
+  --success: var(--color-emerald-500);
+  --success-foreground: var(--color-emerald-400);
+  --warning: var(--color-amber-500);
+  --warning-foreground: var(--color-amber-400);
+}
+
 /* Give both navigation implementations the same cool graphite surface. The
    version attribute remains useful for layout-specific styling, but color is
    shared so switching the beta does not switch visual systems. */
@@ -826,6 +827,30 @@ html.crystl {
      global chrome background, or the fade shows a seam (same rule as the
      light palette above). */
   --sidebar-stage-fade: var(--card);
+}
+
+html.crystl [data-sidebar-version="v1"],
+html.crystl [data-sidebar-version="v2"] {
+  --background: #19151c;
+  --foreground: #eee7f3;
+  --card: #1e1b24;
+  --card-foreground: var(--foreground);
+  --accent: #30263a;
+  --accent-foreground: #faf5ff;
+  --muted: #261f2d;
+  --muted-foreground: #b8aebf;
+  --border: rgb(216 180 254 / 14%);
+  --input: rgb(216 180 254 / 20%);
+  --sidebar: var(--card);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-muted-foreground: var(--muted-foreground);
+  --sidebar-control-surface: var(--muted);
+  --sidebar-row-hover: rgb(168 85 247 / 12%);
+  --sidebar-row-active: rgb(168 85 247 / 18%);
+  --sidebar-row-selected: rgb(139 92 246 / 15%);
+  --sidebar-border: var(--border);
+  --sidebar-stage-fade: var(--card);
+  background-color: var(--card);
 }
 
 body {
