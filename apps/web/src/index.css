@@ -747,8 +747,8 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
 
 html.crystl {
   color-scheme: dark;
-  --background: #19151c;
-  --app-chrome-background: #19151c;
+  --background: #160d1c;
+  --app-chrome-background: #160d1c;
   --surface-raised: #241e2a;
   --foreground: var(--color-neutral-200);
   --card: #1e1b24;
@@ -774,6 +774,15 @@ html.crystl {
   --success-foreground: var(--color-emerald-400);
   --warning: var(--color-amber-500);
   --warning-foreground: var(--color-amber-400);
+}
+
+html.crystl [data-slot="sidebar-inset"] {
+  --background: #160d1c;
+  --app-chrome-background: #160d1c;
+  --surface-raised: #211428;
+  --card: #211428;
+  --popover: #24172c;
+  background-color: #160d1c;
 }
 
 /* Give both navigation implementations the same cool graphite surface. The
