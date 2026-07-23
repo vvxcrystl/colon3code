@@ -1,10 +1,10 @@
-import { Effect, Option, Schema, SchemaIssue, Struct } from "effect";
-import {
-  ClaudeModelOptions,
-  CodexModelOptions,
-  CursorModelOptions,
-  OpenCodeModelOptions,
-} from "./model.ts";
+import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
+import * as SchemaIssue from "effect/SchemaIssue";
+import * as SchemaTransformation from "effect/SchemaTransformation";
+import * as Struct from "effect/Struct";
+import { ProviderOptionSelections } from "./model.ts";
 import { RepositoryIdentity } from "./environment.ts";
 import {
   ApprovalRequestId,
@@ -20,18 +20,18 @@ import {
   TrimmedNonEmptyString,
   TurnId,
 } from "./baseSchemas.ts";
+import { ProviderInstanceId } from "./providerInstance.ts";
 
 export const ORCHESTRATION_WS_METHODS = {
   dispatchCommand: "orchestration.dispatchCommand",
   getTurnDiff: "orchestration.getTurnDiff",
   getFullThreadDiff: "orchestration.getFullThreadDiff",
   replayEvents: "orchestration.replayEvents",
+  getArchivedShellSnapshot: "orchestration.getArchivedShellSnapshot",
   subscribeShell: "orchestration.subscribeShell",
   subscribeThread: "orchestration.subscribeThread",
 } as const;
 
-export const ProviderKind = Schema.Literals(["codex", "claudeAgent", "cursor", "opencode"]);
-export type ProviderKind = typeof ProviderKind.Type;
 export const ProviderApprovalPolicy = Schema.Literals([
   "untrusted",
   "on-failure",
@@ -46,41 +46,72 @@ export const ProviderSandboxMode = Schema.Literals([
 ]);
 export type ProviderSandboxMode = typeof ProviderSandboxMode.Type;
 
-export const DEFAULT_PROVIDER_KIND: ProviderKind = "codex";
-
-export const CodexModelSelection = Schema.Struct({
-  provider: Schema.Literal("codex"),
+/**
+ * `ModelSelection` — selection of a model on a configured provider instance.
+ *
+ * The routing key is `instanceId` (a user-defined slug identifying one
+ * configured provider instance). Drivers, credentials, working-directory
+ * bindings, and any other per-instance state are recovered from the
+ * runtime registry via the instance id.
+ *
+ * Wire legacy: persisted selections produced before the driver/instance
+ * split carried a `provider: <driver-id>` field instead. The schema absorbs
+ * that shape via a pre-decoding transform — `{provider, model}` is promoted
+ * to `{instanceId: defaultInstanceIdForDriver(provider), model}`. No
+ * post-decode compatibility code lives in the runtime; the transform is the
+ * only compat surface.
+ */
+const ModelSelectionWire = Schema.Struct({
+  instanceId: ProviderInstanceId,
   model: TrimmedNonEmptyString,
-  options: Schema.optionalKey(CodexModelOptions),
+  options: Schema.optionalKey(ProviderOptionSelections),
 });
-export type CodexModelSelection = typeof CodexModelSelection.Type;
 
-export const ClaudeModelSelection = Schema.Struct({
-  provider: Schema.Literal("claudeAgent"),
-  model: TrimmedNonEmptyString,
-  options: Schema.optionalKey(ClaudeModelOptions),
+// Source shape for persisted legacy payloads. Fields are typed as
+// `Schema.Unknown` so malformed drafts still make it into the transform and
+// fail validation through the target schema (with proper error messages)
+// rather than at the source-struct layer where the error is less actionable.
+const ModelSelectionSource = Schema.Struct({
+  provider: Schema.optional(Schema.Unknown),
+  instanceId: Schema.optional(Schema.Unknown),
+  model: Schema.Unknown,
+  options: Schema.optional(Schema.Unknown),
 });
-export type ClaudeModelSelection = typeof ClaudeModelSelection.Type;
 
-export const CursorModelSelection = Schema.Struct({
-  provider: Schema.Literal("cursor"),
-  model: TrimmedNonEmptyString,
-  options: Schema.optionalKey(CursorModelOptions),
-});
-export type CursorModelSelection = typeof CursorModelSelection.Type;
-export const OpenCodeModelSelection = Schema.Struct({
-  provider: Schema.Literal("opencode"),
-  model: TrimmedNonEmptyString,
-  options: Schema.optionalKey(OpenCodeModelOptions),
-});
-export type OpenCodeModelSelection = typeof OpenCodeModelSelection.Type;
-
-export const ModelSelection = Schema.Union([
-  CodexModelSelection,
-  ClaudeModelSelection,
-  CursorModelSelection,
-  OpenCodeModelSelection,
-]);
+export const ModelSelection = ModelSelectionSource.pipe(
+  Schema.decodeTo(
+    ModelSelectionWire,
+    SchemaTransformation.transformOrFail({
+      decode: (raw) => {
+        // Resolve the routing key: prefer an explicit `instanceId`; fall
+        // back to promoting the legacy `provider` slug (the canonical
+        // `defaultInstanceIdForDriver` mapping) so persisted rollout-era
+        // payloads decode without data loss. The target schema brands the
+        // string as `ProviderInstanceId`.
+        const instanceIdSource =
+          raw.instanceId !== undefined
+            ? raw.instanceId
+            : typeof raw.provider === "string"
+              ? raw.provider
+              : undefined;
+        const base: Record<string, unknown> = {
+          instanceId: instanceIdSource,
+          model: raw.model,
+        };
+        if (raw.options !== undefined) base.options = raw.options;
+        return Effect.succeed(base as typeof ModelSelectionWire.Encoded);
+      },
+      encode: (value) => {
+        const base: Record<string, unknown> = {
+          model: value.model,
+          instanceId: value.instanceId,
+        };
+        if (value.options !== undefined) base.options = value.options;
+        return Effect.succeed(base as typeof ModelSelectionSource.Encoded);
+      },
+    }),
+  ),
+);
 export type ModelSelection = typeof ModelSelection.Type;
 
 export const RuntimeMode = Schema.Literals([
@@ -163,6 +194,17 @@ export const ProjectScript = Schema.Struct({
   command: TrimmedNonEmptyString,
   icon: ProjectScriptIcon,
   runOnWorktreeCreate: Schema.Boolean,
+  /**
+   * URL to open in the in-app browser preview when this script runs (or
+   * when the user explicitly requests a preview). Optional; only honored on
+   * the desktop build.
+   */
+  previewUrl: Schema.optional(TrimmedNonEmptyString),
+  /**
+   * When true, automatically open the preview panel pointed at `previewUrl`
+   * the moment this script starts. Ignored without `previewUrl` or on web.
+   */
+  autoOpenPreview: Schema.optional(Schema.Boolean),
 });
 export type ProjectScript = typeof ProjectScript.Type;
 
@@ -230,6 +272,7 @@ export const OrchestrationSession = Schema.Struct({
   threadId: ThreadId,
   status: OrchestrationSessionStatus,
   providerName: Schema.NullOr(TrimmedNonEmptyString),
+  providerInstanceId: Schema.optional(ProviderInstanceId),
   runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_RUNTIME_MODE))),
   activeTurnId: Schema.NullOr(TurnId),
   lastError: Schema.NullOr(TrimmedNonEmptyString),
@@ -313,6 +356,10 @@ export const OrchestrationThread = Schema.Struct({
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   archivedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  settledOverride: Schema.NullOr(Schema.Literals(["settled", "active"])).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  settledAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   deletedAt: Schema.NullOr(IsoDateTime),
   messages: Schema.Array(OrchestrationMessage),
   proposedPlans: Schema.Array(OrchestrationProposedPlan).pipe(
@@ -359,6 +406,10 @@ export const OrchestrationThreadShell = Schema.Struct({
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   archivedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  settledOverride: Schema.NullOr(Schema.Literals(["settled", "active"])).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  settledAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   session: Schema.NullOr(OrchestrationSession),
   latestUserMessageAt: Schema.NullOr(IsoDateTime),
   hasPendingApprovals: Schema.Boolean,
@@ -401,6 +452,9 @@ export type OrchestrationShellStreamEvent = typeof OrchestrationShellStreamEvent
 
 export const OrchestrationShellStreamItem = Schema.Union([
   Schema.Struct({
+    kind: Schema.Literal("synchronized"),
+  }),
+  Schema.Struct({
     kind: Schema.Literal("snapshot"),
     snapshot: OrchestrationShellSnapshot,
   }),
@@ -408,8 +462,39 @@ export const OrchestrationShellStreamItem = Schema.Union([
 ]);
 export type OrchestrationShellStreamItem = typeof OrchestrationShellStreamItem.Type;
 
+export const OrchestrationSubscribeShellInput = Schema.Struct({
+  /**
+   * When provided, the server skips the initial full shell snapshot and instead
+   * replays shell events after this sequence before streaming live events.
+   * Clients that already hold a cached (or HTTP-loaded) shell snapshot pass its
+   * sequence here so the subscription resumes without re-sending the entire
+   * projects/threads list (overlapping events are deduped by sequence on the
+   * client).
+   */
+  afterSequence: Schema.optionalKey(NonNegativeInt),
+  /**
+   * Requests an explicit marker after the subscription has emitted its initial
+   * snapshot or catch-up replay and before it begins emitting live events.
+   */
+  requestCompletionMarker: Schema.optionalKey(Schema.Boolean),
+});
+export type OrchestrationSubscribeShellInput = typeof OrchestrationSubscribeShellInput.Type;
+
 export const OrchestrationSubscribeThreadInput = Schema.Struct({
   threadId: ThreadId,
+  /**
+   * When provided, the server skips the initial snapshot frame and instead
+   * replays events after this sequence before streaming live events. Clients
+   * that load the snapshot over HTTP pass the snapshot's sequence here so the
+   * live subscription resumes without a gap (overlapping events are deduped by
+   * sequence on the client).
+   */
+  afterSequence: Schema.optionalKey(NonNegativeInt),
+  /**
+   * Requests an explicit marker after the subscription has emitted its initial
+   * snapshot or catch-up replay and before it begins emitting live events.
+   */
+  requestCompletionMarker: Schema.optionalKey(Schema.Boolean),
 });
 export type OrchestrationSubscribeThreadInput = typeof OrchestrationSubscribeThreadInput.Type;
 
@@ -481,6 +566,22 @@ const ThreadUnarchiveCommand = Schema.Struct({
   threadId: ThreadId,
 });
 
+const ThreadSettleCommand = Schema.Struct({
+  type: Schema.Literal("thread.settle"),
+  commandId: CommandId,
+  threadId: ThreadId,
+});
+
+const ThreadUnsettleCommand = Schema.Struct({
+  type: Schema.Literal("thread.unsettle"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  // Commands only carry "user": activity un-settles are decided server-side
+  // (the decider emits thread.unsettled(reason: "activity") events directly,
+  // never through this command), so a client cannot forge the neutral reset.
+  reason: Schema.Literal("user"),
+});
+
 const ThreadMetaUpdateCommand = Schema.Struct({
   type: Schema.Literal("thread.meta.update"),
   commandId: CommandId,
@@ -488,6 +589,7 @@ const ThreadMetaUpdateCommand = Schema.Struct({
   title: Schema.optional(TrimmedNonEmptyString),
   modelSelection: Schema.optional(ModelSelection),
   branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  expectedBranch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
 });
 
@@ -522,6 +624,7 @@ const ThreadTurnStartBootstrapPrepareWorktree = Schema.Struct({
   projectCwd: TrimmedNonEmptyString,
   baseBranch: TrimmedNonEmptyString,
   branch: Schema.optional(TrimmedNonEmptyString),
+  startFromOrigin: Schema.optional(Schema.Boolean),
 });
 
 const ThreadTurnStartBootstrap = Schema.Struct({
@@ -621,6 +724,8 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadDeleteCommand,
   ThreadArchiveCommand,
   ThreadUnarchiveCommand,
+  ThreadSettleCommand,
+  ThreadUnsettleCommand,
   ThreadMetaUpdateCommand,
   ThreadRuntimeModeSetCommand,
   ThreadInteractionModeSetCommand,
@@ -642,6 +747,8 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadDeleteCommand,
   ThreadArchiveCommand,
   ThreadUnarchiveCommand,
+  ThreadSettleCommand,
+  ThreadUnsettleCommand,
   ThreadMetaUpdateCommand,
   ThreadRuntimeModeSetCommand,
   ThreadInteractionModeSetCommand,
@@ -744,6 +851,8 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.deleted",
   "thread.archived",
   "thread.unarchived",
+  "thread.settled",
+  "thread.unsettled",
   "thread.meta-updated",
   "thread.runtime-mode-set",
   "thread.interaction-mode-set",
@@ -820,6 +929,18 @@ export const ThreadArchivedPayload = Schema.Struct({
 
 export const ThreadUnarchivedPayload = Schema.Struct({
   threadId: ThreadId,
+  updatedAt: IsoDateTime,
+});
+
+export const ThreadSettledPayload = Schema.Struct({
+  threadId: ThreadId,
+  settledAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+
+export const ThreadUnsettledPayload = Schema.Struct({
+  threadId: ThreadId,
+  reason: Schema.Literals(["user", "activity"]),
   updatedAt: IsoDateTime,
 });
 
@@ -992,6 +1113,16 @@ export const OrchestrationEvent = Schema.Union([
   }),
   Schema.Struct({
     ...EventBaseFields,
+    type: Schema.Literal("thread.settled"),
+    payload: ThreadSettledPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.unsettled"),
+    payload: ThreadUnsettledPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
     type: Schema.Literal("thread.meta-updated"),
     payload: ThreadMetaUpdatedPayload,
   }),
@@ -1070,6 +1201,9 @@ export type OrchestrationEvent = typeof OrchestrationEvent.Type;
 
 export const OrchestrationThreadStreamItem = Schema.Union([
   Schema.Struct({
+    kind: Schema.Literal("synchronized"),
+  }),
+  Schema.Struct({
     kind: Schema.Literal("snapshot"),
     snapshot: OrchestrationThreadDetailSnapshot,
   }),
@@ -1145,7 +1279,10 @@ export const DispatchResult = Schema.Struct({
 export type DispatchResult = typeof DispatchResult.Type;
 
 export const OrchestrationGetTurnDiffInput = TurnCountRange.mapFields(
-  Struct.assign({ threadId: ThreadId }),
+  Struct.assign({
+    threadId: ThreadId,
+    ignoreWhitespace: Schema.optionalKey(Schema.Boolean),
+  }),
   { unsafePreserveChecks: true },
 );
 export type OrchestrationGetTurnDiffInput = typeof OrchestrationGetTurnDiffInput.Type;
@@ -1156,6 +1293,7 @@ export type OrchestrationGetTurnDiffResult = typeof OrchestrationGetTurnDiffResu
 export const OrchestrationGetFullThreadDiffInput = Schema.Struct({
   threadId: ThreadId,
   toTurnCount: NonNegativeInt,
+  ignoreWhitespace: Schema.optionalKey(Schema.Boolean),
 });
 export type OrchestrationGetFullThreadDiffInput = typeof OrchestrationGetFullThreadDiffInput.Type;
 
@@ -1187,12 +1325,16 @@ export const OrchestrationRpcSchemas = {
     input: OrchestrationReplayEventsInput,
     output: OrchestrationReplayEventsResult,
   },
+  getArchivedShellSnapshot: {
+    input: Schema.Struct({}),
+    output: OrchestrationShellSnapshot,
+  },
   subscribeThread: {
     input: OrchestrationSubscribeThreadInput,
     output: OrchestrationThreadStreamItem,
   },
   subscribeShell: {
-    input: Schema.Struct({}),
+    input: OrchestrationSubscribeShellInput,
     output: OrchestrationShellStreamItem,
   },
 } as const;
@@ -1201,7 +1343,7 @@ export class OrchestrationGetSnapshotError extends Schema.TaggedErrorClass<Orche
   "OrchestrationGetSnapshotError",
   {
     message: TrimmedNonEmptyString,
-    cause: Schema.optional(Schema.Defect),
+    cause: Schema.optional(Schema.Defect()),
   },
 ) {}
 
@@ -1209,7 +1351,7 @@ export class OrchestrationDispatchCommandError extends Schema.TaggedErrorClass<O
   "OrchestrationDispatchCommandError",
   {
     message: TrimmedNonEmptyString,
-    cause: Schema.optional(Schema.Defect),
+    cause: Schema.optional(Schema.Defect()),
   },
 ) {}
 
@@ -1217,7 +1359,7 @@ export class OrchestrationGetTurnDiffError extends Schema.TaggedErrorClass<Orche
   "OrchestrationGetTurnDiffError",
   {
     message: TrimmedNonEmptyString,
-    cause: Schema.optional(Schema.Defect),
+    cause: Schema.optional(Schema.Defect()),
   },
 ) {}
 
@@ -1225,7 +1367,7 @@ export class OrchestrationGetFullThreadDiffError extends Schema.TaggedErrorClass
   "OrchestrationGetFullThreadDiffError",
   {
     message: TrimmedNonEmptyString,
-    cause: Schema.optional(Schema.Defect),
+    cause: Schema.optional(Schema.Defect()),
   },
 ) {}
 
@@ -1233,6 +1375,6 @@ export class OrchestrationReplayEventsError extends Schema.TaggedErrorClass<Orch
   "OrchestrationReplayEventsError",
   {
     message: TrimmedNonEmptyString,
-    cause: Schema.optional(Schema.Defect),
+    cause: Schema.optional(Schema.Defect()),
   },
 ) {}

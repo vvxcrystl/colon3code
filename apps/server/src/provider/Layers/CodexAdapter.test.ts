@@ -1,10 +1,14 @@
-import assert from "node:assert/strict";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
+// @effect-diagnostics nodeBuiltinImport:off
+import * as NodeAssert from "node:assert/strict";
+import * as NodeFS from "node:fs";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
 import {
   ApprovalRequestId,
+  CodexSettings,
   EventId,
+  ProviderDriverKind,
+  ProviderInstanceId,
   ProviderItemId,
   type ProviderApprovalDecision,
   type ProviderEvent,
@@ -14,16 +18,26 @@ import {
   ThreadId,
   TurnId,
 } from "@t3tools/contracts";
+import { createModelSelection } from "@t3tools/shared/model";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it, vi } from "@effect/vitest";
 
-import { Effect, Exit, Fiber, Layer, Option, Queue, Scope, Stream } from "effect";
+import * as Context from "effect/Context";
+import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
+import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
+import * as Queue from "effect/Queue";
+import * as Schema from "effect/Schema";
+import * as Scope from "effect/Scope";
+import * as Stream from "effect/Stream";
 import * as CodexErrors from "effect-codex-app-server/errors";
 
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { ProviderAdapterValidationError } from "../Errors.ts";
-import { CodexAdapter } from "../Services/CodexAdapter.ts";
+import type { CodexAdapterShape } from "../Services/CodexAdapter.ts";
 import { ProviderSessionDirectory } from "../Services/ProviderSessionDirectory.ts";
 import {
   type CodexSessionRuntimeOptions,
@@ -31,7 +45,13 @@ import {
   type CodexSessionRuntimeShape,
   type CodexThreadSnapshot,
 } from "./CodexSessionRuntime.ts";
-import { makeCodexAdapterLive } from "./CodexAdapter.ts";
+import { makeCodexAdapter } from "./CodexAdapter.ts";
+const decodeCodexSettings = Schema.decodeSync(CodexSettings);
+
+// Test-local service tag so the rest of the file can keep using `yield* CodexAdapter`.
+class CodexAdapter extends Context.Service<CodexAdapter, CodexAdapterShape>()(
+  "t3/provider/Layers/CodexAdapter.test/CodexAdapter",
+) {}
 
 const asThreadId = (value: string): ThreadId => ThreadId.make(value);
 const asTurnId = (value: string): TurnId => TurnId.make(value);
@@ -40,11 +60,11 @@ const asItemId = (value: string): ProviderItemId => ProviderItemId.make(value);
 
 class FakeCodexRuntime implements CodexSessionRuntimeShape {
   private readonly eventQueue = Effect.runSync(Queue.unbounded<ProviderEvent>());
-  private readonly now = new Date().toISOString();
+  private readonly now = "2026-01-01T00:00:00.000Z";
 
   public readonly startImpl = vi.fn(() =>
     Promise.resolve({
-      provider: "codex" as const,
+      provider: ProviderDriverKind.make("codex"),
       status: "ready" as const,
       runtimeMode: this.options.runtimeMode,
       threadId: this.options.threadId,
@@ -202,7 +222,15 @@ const providerSessionDirectoryTestLayer = Layer.succeed(ProviderSessionDirectory
 
 const validationRuntimeFactory = makeRuntimeFactory();
 const validationLayer = it.layer(
-  makeCodexAdapterLive({ makeRuntime: validationRuntimeFactory.factory }).pipe(
+  Layer.effect(
+    CodexAdapter,
+    Effect.gen(function* () {
+      const codexConfig = decodeCodexSettings({});
+      return yield* makeCodexAdapter(codexConfig, {
+        makeRuntime: validationRuntimeFactory.factory,
+      });
+    }),
+  ).pipe(
     Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
     Layer.provideMerge(ServerSettingsService.layerTest()),
     Layer.provideMerge(providerSessionDirectoryTestLayer),
@@ -216,22 +244,22 @@ validationLayer("CodexAdapterLive validation", (it) => {
       const adapter = yield* CodexAdapter;
       const result = yield* adapter
         .startSession({
-          provider: "claudeAgent",
+          provider: ProviderDriverKind.make("claudeAgent"),
           threadId: asThreadId("thread-1"),
           runtimeMode: "full-access",
         })
         .pipe(Effect.result);
 
-      assert.equal(result._tag, "Failure");
-      assert.deepStrictEqual(
+      NodeAssert.equal(result._tag, "Failure");
+      NodeAssert.deepStrictEqual(
         result.failure,
         new ProviderAdapterValidationError({
-          provider: "codex",
+          provider: ProviderDriverKind.make("codex"),
           operation: "startSession",
           issue: "Expected provider 'codex' but received 'claudeAgent'.",
         }),
       );
-      assert.equal(validationRuntimeFactory.factory.mock.calls.length, 0);
+      NodeAssert.equal(validationRuntimeFactory.factory.mock.calls.length, 0);
     }),
   );
   it.effect("maps codex model options before starting a session", () =>
@@ -240,23 +268,21 @@ validationLayer("CodexAdapterLive validation", (it) => {
       const adapter = yield* CodexAdapter;
 
       yield* adapter.startSession({
-        provider: "codex",
+        provider: ProviderDriverKind.make("codex"),
         threadId: asThreadId("thread-1"),
-        modelSelection: {
-          provider: "codex",
-          model: "gpt-5.3-codex",
-          options: {
-            fastMode: true,
-          },
-        },
+        modelSelection: createModelSelection(ProviderInstanceId.make("codex"), "gpt-5.3-codex", [
+          { id: "serviceTier", value: "priority" },
+        ]),
         runtimeMode: "full-access",
       });
 
-      assert.deepStrictEqual(validationRuntimeFactory.factory.mock.calls[0]?.[0], {
+      NodeAssert.deepStrictEqual(validationRuntimeFactory.factory.mock.calls[0]?.[0], {
         binaryPath: "codex",
         cwd: process.cwd(),
+        launchArgs: "",
         model: "gpt-5.3-codex",
-        serviceTier: "fast",
+        providerInstanceId: ProviderInstanceId.make("codex"),
+        serviceTier: "priority",
         threadId: asThreadId("thread-1"),
         runtimeMode: "full-access",
       });
@@ -293,7 +319,15 @@ validationLayer("CodexAdapterLive validation", (it) => {
 
 const sessionRuntimeFactory = makeRuntimeFactory();
 const sessionErrorLayer = it.layer(
-  makeCodexAdapterLive({ makeRuntime: sessionRuntimeFactory.factory }).pipe(
+  Layer.effect(
+    CodexAdapter,
+    Effect.gen(function* () {
+      const codexConfig = decodeCodexSettings({});
+      return yield* makeCodexAdapter(codexConfig, {
+        makeRuntime: sessionRuntimeFactory.factory,
+      });
+    }),
+  ).pipe(
     Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
     Layer.provideMerge(ServerSettingsService.layerTest()),
     Layer.provideMerge(providerSessionDirectoryTestLayer),
@@ -313,10 +347,10 @@ sessionErrorLayer("CodexAdapterLive session errors", (it) => {
         })
         .pipe(Effect.result);
 
-      assert.equal(result._tag, "Failure");
-      assert.equal(result.failure._tag, "ProviderAdapterSessionNotFoundError");
-      assert.equal(result.failure.provider, "codex");
-      assert.equal(result.failure.threadId, "sess-missing");
+      NodeAssert.equal(result._tag, "Failure");
+      NodeAssert.equal(result.failure._tag, "ProviderAdapterSessionNotFoundError");
+      NodeAssert.equal(result.failure.provider, "codex");
+      NodeAssert.equal(result.failure.threadId, "sess-missing");
     }),
   );
 
@@ -324,43 +358,165 @@ sessionErrorLayer("CodexAdapterLive session errors", (it) => {
     Effect.gen(function* () {
       const adapter = yield* CodexAdapter;
       yield* adapter.startSession({
-        provider: "codex",
+        provider: ProviderDriverKind.make("codex"),
         threadId: asThreadId("sess-missing"),
         runtimeMode: "full-access",
       });
       const runtime = sessionRuntimeFactory.lastRuntime;
-      assert.ok(runtime);
+      NodeAssert.ok(runtime);
       runtime.sendTurnImpl.mockClear();
 
       yield* Effect.ignore(
         adapter.sendTurn({
           threadId: asThreadId("sess-missing"),
           input: "hello",
-          modelSelection: {
-            provider: "codex",
-            model: "gpt-5.3-codex",
-            options: {
-              reasoningEffort: "high",
-              fastMode: true,
-            },
-          },
+          modelSelection: createModelSelection(ProviderInstanceId.make("codex"), "gpt-5.3-codex", [
+            { id: "reasoningEffort", value: "high" },
+            { id: "serviceTier", value: "priority" },
+          ]),
           attachments: [],
         }),
       );
 
-      assert.deepStrictEqual(runtime.sendTurnImpl.mock.calls[0]?.[0], {
+      NodeAssert.deepStrictEqual(runtime.sendTurnImpl.mock.calls[0]?.[0], {
         input: "hello",
         model: "gpt-5.3-codex",
         effort: "high",
-        serviceTier: "fast",
+        serviceTier: "priority",
       });
     }),
   );
+
+  it.effect("passes configured launch args into the session runtime", () => {
+    const runtimeFactory = makeRuntimeFactory();
+    const layer = Layer.effect(
+      CodexAdapter,
+      Effect.gen(function* () {
+        const codexConfig = decodeCodexSettings({ launchArgs: "--strict-config --enable foo" });
+        return yield* makeCodexAdapter(codexConfig, {
+          makeRuntime: runtimeFactory.factory,
+        });
+      }),
+    ).pipe(
+      Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
+      Layer.provideMerge(ServerSettingsService.layerTest()),
+      Layer.provideMerge(providerSessionDirectoryTestLayer),
+      Layer.provideMerge(NodeServices.layer),
+    );
+
+    return Effect.gen(function* () {
+      const adapter = yield* CodexAdapter;
+      yield* adapter.startSession({
+        provider: ProviderDriverKind.make("codex"),
+        threadId: asThreadId("sess-launch-args"),
+        runtimeMode: "full-access",
+      });
+
+      const runtime = runtimeFactory.lastRuntime;
+      NodeAssert.ok(runtime);
+      NodeAssert.equal(runtime.options.launchArgs, "--strict-config --enable foo");
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("uses T3CODE_CODEX_LAUNCH_ARGS for the session runtime", () => {
+    const runtimeFactory = makeRuntimeFactory();
+    const layer = Layer.effect(
+      CodexAdapter,
+      Effect.gen(function* () {
+        const codexConfig = decodeCodexSettings({ launchArgs: "--enable settings-feature" });
+        return yield* makeCodexAdapter(codexConfig, {
+          environment: { T3CODE_CODEX_LAUNCH_ARGS: " --strict-config --enable env-feature " },
+          makeRuntime: runtimeFactory.factory,
+        });
+      }),
+    ).pipe(
+      Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
+      Layer.provideMerge(ServerSettingsService.layerTest()),
+      Layer.provideMerge(providerSessionDirectoryTestLayer),
+      Layer.provideMerge(NodeServices.layer),
+    );
+
+    return Effect.gen(function* () {
+      const adapter = yield* CodexAdapter;
+      yield* adapter.startSession({
+        provider: ProviderDriverKind.make("codex"),
+        threadId: asThreadId("sess-launch-args-env"),
+        runtimeMode: "full-access",
+      });
+
+      const runtime = runtimeFactory.lastRuntime;
+      NodeAssert.ok(runtime);
+      NodeAssert.equal(runtime.options.launchArgs, "--strict-config --enable env-feature");
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("maps codex model options for the adapter's bound custom instance id", () => {
+    const customInstanceId = ProviderInstanceId.make("codex_personal");
+    const customRuntimeFactory = makeRuntimeFactory();
+    const customLayer = Layer.effect(
+      CodexAdapter,
+      Effect.gen(function* () {
+        const codexConfig = decodeCodexSettings({});
+        return yield* makeCodexAdapter(codexConfig, {
+          instanceId: customInstanceId,
+          makeRuntime: customRuntimeFactory.factory,
+        });
+      }),
+    ).pipe(
+      Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
+      Layer.provideMerge(ServerSettingsService.layerTest()),
+      Layer.provideMerge(providerSessionDirectoryTestLayer),
+      Layer.provideMerge(NodeServices.layer),
+    );
+
+    return Effect.gen(function* () {
+      const adapter = yield* CodexAdapter;
+      yield* adapter.startSession({
+        provider: ProviderDriverKind.make("codex"),
+        threadId: asThreadId("sess-custom-instance"),
+        runtimeMode: "full-access",
+      });
+      const runtime = customRuntimeFactory.lastRuntime;
+      NodeAssert.ok(runtime);
+      runtime.sendTurnImpl.mockClear();
+
+      yield* Effect.ignore(
+        adapter.sendTurn({
+          threadId: asThreadId("sess-custom-instance"),
+          input: "hello",
+          modelSelection: createModelSelection(
+            ProviderInstanceId.make("codex_personal"),
+            "gpt-5.3-codex",
+            [
+              { id: "reasoningEffort", value: "high" },
+              { id: "serviceTier", value: "flex" },
+            ],
+          ),
+          attachments: [],
+        }),
+      );
+
+      NodeAssert.deepStrictEqual(runtime.sendTurnImpl.mock.calls[0]?.[0], {
+        input: "hello",
+        model: "gpt-5.3-codex",
+        effort: "high",
+        serviceTier: "flex",
+      });
+    }).pipe(Effect.provide(customLayer));
+  });
 });
 
 const lifecycleRuntimeFactory = makeRuntimeFactory();
 const lifecycleLayer = it.layer(
-  makeCodexAdapterLive({ makeRuntime: lifecycleRuntimeFactory.factory }).pipe(
+  Layer.effect(
+    CodexAdapter,
+    Effect.gen(function* () {
+      const codexConfig = decodeCodexSettings({});
+      return yield* makeCodexAdapter(codexConfig, {
+        makeRuntime: lifecycleRuntimeFactory.factory,
+      });
+    }),
+  ).pipe(
     Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
     Layer.provideMerge(ServerSettingsService.layerTest()),
     Layer.provideMerge(providerSessionDirectoryTestLayer),
@@ -372,12 +528,12 @@ function startLifecycleRuntime() {
   return Effect.gen(function* () {
     const adapter = yield* CodexAdapter;
     yield* adapter.startSession({
-      provider: "codex",
+      provider: ProviderDriverKind.make("codex"),
       threadId: asThreadId("thread-1"),
       runtimeMode: "full-access",
     });
     const runtime = lifecycleRuntimeFactory.lastRuntime;
-    assert.ok(runtime);
+    NodeAssert.ok(runtime);
     return { adapter, runtime };
   });
 }
@@ -391,13 +547,14 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
       const event: ProviderEvent = {
         id: asEventId("evt-msg-complete"),
         kind: "notification",
-        provider: "codex",
-        createdAt: new Date().toISOString(),
+        provider: ProviderDriverKind.make("codex"),
+        createdAt: "2026-01-01T00:00:00.000Z",
         method: "item/completed",
         threadId: asThreadId("thread-1"),
         turnId: asTurnId("turn-1"),
         itemId: asItemId("msg_1"),
         payload: {
+          completedAtMs: 1_778_000_000_000,
           threadId: "thread-1",
           turnId: "turn-1",
           item: {
@@ -411,17 +568,75 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
       yield* runtime.emit(event);
       const firstEvent = yield* Fiber.join(firstEventFiber);
 
-      assert.equal(firstEvent._tag, "Some");
+      NodeAssert.equal(firstEvent._tag, "Some");
       if (firstEvent._tag !== "Some") {
         return;
       }
-      assert.equal(firstEvent.value.type, "item.completed");
+      NodeAssert.equal(firstEvent.value.type, "item.completed");
       if (firstEvent.value.type !== "item.completed") {
         return;
       }
-      assert.equal(firstEvent.value.itemId, "msg_1");
-      assert.equal(firstEvent.value.turnId, "turn-1");
-      assert.equal(firstEvent.value.payload.itemType, "assistant_message");
+      NodeAssert.equal(firstEvent.value.itemId, "msg_1");
+      NodeAssert.equal(firstEvent.value.turnId, "turn-1");
+      NodeAssert.equal(firstEvent.value.payload.itemType, "assistant_message");
+    }),
+  );
+
+  it.effect("labels MCP lifecycle entries with server and tool names", () =>
+    Effect.gen(function* () {
+      const { adapter, runtime } = yield* startLifecycleRuntime();
+      const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+
+      yield* runtime.emit({
+        id: asEventId("evt-mcp-complete"),
+        kind: "notification",
+        provider: ProviderDriverKind.make("codex"),
+        createdAt: "2026-01-01T00:00:00.000Z",
+        method: "item/completed",
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId("turn-1"),
+        itemId: asItemId("mcp_1"),
+        payload: {
+          completedAtMs: 1_778_000_000_000,
+          threadId: "thread-1",
+          turnId: "turn-1",
+          item: {
+            type: "mcpToolCall",
+            id: "mcp_1",
+            server: "t3-code",
+            tool: "preview_status",
+            arguments: {},
+            durationMs: 12,
+            error: null,
+            result: { content: [{ type: "text", text: "attached" }] },
+            status: "completed",
+          },
+        },
+      });
+      const firstEvent = yield* Fiber.join(firstEventFiber);
+
+      NodeAssert.equal(firstEvent._tag, "Some");
+      if (firstEvent._tag !== "Some" || firstEvent.value.type !== "item.completed") {
+        return;
+      }
+      NodeAssert.equal(firstEvent.value.payload.itemType, "mcp_tool_call");
+      NodeAssert.equal(firstEvent.value.payload.title, "t3-code · preview_status");
+      NodeAssert.deepStrictEqual(firstEvent.value.payload.data, {
+        completedAtMs: 1_778_000_000_000,
+        threadId: "thread-1",
+        turnId: "turn-1",
+        item: {
+          type: "mcpToolCall",
+          id: "mcp_1",
+          server: "t3-code",
+          tool: "preview_status",
+          arguments: {},
+          durationMs: 12,
+          error: null,
+          result: { content: [{ type: "text", text: "attached" }] },
+          status: "completed",
+        },
+      });
     }),
   );
 
@@ -433,13 +648,14 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
       const event: ProviderEvent = {
         id: asEventId("evt-plan-complete"),
         kind: "notification",
-        provider: "codex",
-        createdAt: new Date().toISOString(),
+        provider: ProviderDriverKind.make("codex"),
+        createdAt: "2026-01-01T00:00:00.000Z",
         method: "item/completed",
         threadId: asThreadId("thread-1"),
         turnId: asTurnId("turn-1"),
         itemId: asItemId("plan_1"),
         payload: {
+          completedAtMs: 1_778_000_000_000,
           threadId: "thread-1",
           turnId: "turn-1",
           item: {
@@ -453,16 +669,16 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
       yield* runtime.emit(event);
       const firstEvent = yield* Fiber.join(firstEventFiber);
 
-      assert.equal(firstEvent._tag, "Some");
+      NodeAssert.equal(firstEvent._tag, "Some");
       if (firstEvent._tag !== "Some") {
         return;
       }
-      assert.equal(firstEvent.value.type, "turn.proposed.completed");
+      NodeAssert.equal(firstEvent.value.type, "turn.proposed.completed");
       if (firstEvent.value.type !== "turn.proposed.completed") {
         return;
       }
-      assert.equal(firstEvent.value.turnId, "turn-1");
-      assert.equal(firstEvent.value.payload.planMarkdown, "## Final plan\n\n- one\n- two");
+      NodeAssert.equal(firstEvent.value.turnId, "turn-1");
+      NodeAssert.equal(firstEvent.value.payload.planMarkdown, "## Final plan\n\n- one\n- two");
     }),
   );
 
@@ -474,8 +690,8 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
       yield* runtime.emit({
         id: asEventId("evt-plan-delta"),
         kind: "notification",
-        provider: "codex",
-        createdAt: new Date().toISOString(),
+        provider: ProviderDriverKind.make("codex"),
+        createdAt: "2026-01-01T00:00:00.000Z",
         method: "item/plan/delta",
         threadId: asThreadId("thread-1"),
         turnId: asTurnId("turn-1"),
@@ -490,16 +706,16 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
 
       const firstEvent = yield* Fiber.join(firstEventFiber);
 
-      assert.equal(firstEvent._tag, "Some");
+      NodeAssert.equal(firstEvent._tag, "Some");
       if (firstEvent._tag !== "Some") {
         return;
       }
-      assert.equal(firstEvent.value.type, "turn.proposed.delta");
+      NodeAssert.equal(firstEvent.value.type, "turn.proposed.delta");
       if (firstEvent.value.type !== "turn.proposed.delta") {
         return;
       }
-      assert.equal(firstEvent.value.turnId, "turn-1");
-      assert.equal(firstEvent.value.payload.delta, "## Final plan");
+      NodeAssert.equal(firstEvent.value.turnId, "turn-1");
+      NodeAssert.equal(firstEvent.value.payload.delta, "## Final plan");
     }),
   );
 
@@ -511,9 +727,9 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
       const event: ProviderEvent = {
         id: asEventId("evt-session-closed"),
         kind: "session",
-        provider: "codex",
+        provider: ProviderDriverKind.make("codex"),
         threadId: asThreadId("thread-1"),
-        createdAt: new Date().toISOString(),
+        createdAt: "2026-01-01T00:00:00.000Z",
         method: "session/closed",
         message: "Session stopped",
       };
@@ -521,16 +737,16 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
       yield* runtime.emit(event);
       const firstEvent = yield* Fiber.join(firstEventFiber);
 
-      assert.equal(firstEvent._tag, "Some");
+      NodeAssert.equal(firstEvent._tag, "Some");
       if (firstEvent._tag !== "Some") {
         return;
       }
-      assert.equal(firstEvent.value.type, "session.exited");
+      NodeAssert.equal(firstEvent.value.type, "session.exited");
       if (firstEvent.value.type !== "session.exited") {
         return;
       }
-      assert.equal(firstEvent.value.threadId, "thread-1");
-      assert.equal(firstEvent.value.payload.reason, "Session stopped");
+      NodeAssert.equal(firstEvent.value.threadId, "thread-1");
+      NodeAssert.equal(firstEvent.value.payload.reason, "Session stopped");
     }),
   );
 
@@ -542,9 +758,9 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
       yield* runtime.emit({
         id: asEventId("evt-retryable-error"),
         kind: "notification",
-        provider: "codex",
+        provider: ProviderDriverKind.make("codex"),
         threadId: asThreadId("thread-1"),
-        createdAt: new Date().toISOString(),
+        createdAt: "2026-01-01T00:00:00.000Z",
         method: "error",
         turnId: asTurnId("turn-1"),
         payload: {
@@ -559,16 +775,16 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
 
       const firstEvent = yield* Fiber.join(firstEventFiber);
 
-      assert.equal(firstEvent._tag, "Some");
+      NodeAssert.equal(firstEvent._tag, "Some");
       if (firstEvent._tag !== "Some") {
         return;
       }
-      assert.equal(firstEvent.value.type, "runtime.warning");
+      NodeAssert.equal(firstEvent.value.type, "runtime.warning");
       if (firstEvent.value.type !== "runtime.warning") {
         return;
       }
-      assert.equal(firstEvent.value.turnId, "turn-1");
-      assert.equal(firstEvent.value.payload.message, "Reconnecting... 2/5");
+      NodeAssert.equal(firstEvent.value.turnId, "turn-1");
+      NodeAssert.equal(firstEvent.value.payload.message, "Reconnecting... 2/5");
     }),
   );
 
@@ -580,9 +796,9 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
       yield* runtime.emit({
         id: asEventId("evt-process-stderr"),
         kind: "notification",
-        provider: "codex",
+        provider: ProviderDriverKind.make("codex"),
         threadId: asThreadId("thread-1"),
-        createdAt: new Date().toISOString(),
+        createdAt: "2026-01-01T00:00:00.000Z",
         method: "process/stderr",
         turnId: asTurnId("turn-1"),
         message: "The filename or extension is too long. (os error 206)",
@@ -590,19 +806,53 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
 
       const firstEvent = yield* Fiber.join(firstEventFiber);
 
-      assert.equal(firstEvent._tag, "Some");
+      NodeAssert.equal(firstEvent._tag, "Some");
       if (firstEvent._tag !== "Some") {
         return;
       }
-      assert.equal(firstEvent.value.type, "runtime.warning");
+      NodeAssert.equal(firstEvent.value.type, "runtime.warning");
       if (firstEvent.value.type !== "runtime.warning") {
         return;
       }
-      assert.equal(firstEvent.value.turnId, "turn-1");
-      assert.equal(
+      NodeAssert.equal(firstEvent.value.turnId, "turn-1");
+      NodeAssert.equal(
         firstEvent.value.payload.message,
         "The filename or extension is too long. (os error 206)",
       );
+    }),
+  );
+
+  it.effect("maps realtime started notifications with upstream realtime session ids", () =>
+    Effect.gen(function* () {
+      const { adapter, runtime } = yield* startLifecycleRuntime();
+      const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+
+      yield* runtime.emit({
+        id: asEventId("evt-realtime-started"),
+        kind: "notification",
+        provider: ProviderDriverKind.make("codex"),
+        threadId: asThreadId("thread-1"),
+        createdAt: "2026-01-01T00:00:00.000Z",
+        method: "thread/realtime/started",
+        payload: {
+          threadId: "thread-1",
+          realtimeSessionId: "realtime-session-1",
+          version: "v2",
+        },
+      } satisfies ProviderEvent);
+
+      const firstEvent = yield* Fiber.join(firstEventFiber);
+
+      NodeAssert.equal(firstEvent._tag, "Some");
+      if (firstEvent._tag !== "Some") {
+        return;
+      }
+      NodeAssert.equal(firstEvent.value.type, "thread.realtime.started");
+      if (firstEvent.value.type !== "thread.realtime.started") {
+        return;
+      }
+      NodeAssert.equal(firstEvent.value.threadId, "thread-1");
+      NodeAssert.equal(firstEvent.value.payload.realtimeSessionId, "realtime-session-1");
     }),
   );
 
@@ -614,9 +864,9 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
       yield* runtime.emit({
         id: asEventId("evt-process-stderr-websocket"),
         kind: "notification",
-        provider: "codex",
+        provider: ProviderDriverKind.make("codex"),
         threadId: asThreadId("thread-1"),
-        createdAt: new Date().toISOString(),
+        createdAt: "2026-01-01T00:00:00.000Z",
         method: "process/stderr",
         turnId: asTurnId("turn-1"),
         message:
@@ -625,17 +875,17 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
 
       const firstEvent = yield* Fiber.join(firstEventFiber);
 
-      assert.equal(firstEvent._tag, "Some");
+      NodeAssert.equal(firstEvent._tag, "Some");
       if (firstEvent._tag !== "Some") {
         return;
       }
-      assert.equal(firstEvent.value.type, "runtime.error");
+      NodeAssert.equal(firstEvent.value.type, "runtime.error");
       if (firstEvent.value.type !== "runtime.error") {
         return;
       }
-      assert.equal(firstEvent.value.turnId, "turn-1");
-      assert.equal(firstEvent.value.payload.class, "provider_error");
-      assert.equal(
+      NodeAssert.equal(firstEvent.value.turnId, "turn-1");
+      NodeAssert.equal(firstEvent.value.payload.class, "provider_error");
+      NodeAssert.equal(
         firstEvent.value.payload.message,
         "2026-03-31T18:14:06.833399Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 503 Service Unavailable, url: wss://chatgpt.com/backend-api/codex/responses",
       );
@@ -650,9 +900,9 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
       const event: ProviderEvent = {
         id: asEventId("evt-request-resolved"),
         kind: "notification",
-        provider: "codex",
+        provider: ProviderDriverKind.make("codex"),
         threadId: asThreadId("thread-1"),
-        createdAt: new Date().toISOString(),
+        createdAt: "2026-01-01T00:00:00.000Z",
         method: "serverRequest/resolved",
         requestKind: "command",
         requestId: ApprovalRequestId.make("req-1"),
@@ -665,15 +915,15 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
       yield* runtime.emit(event);
       const firstEvent = yield* Fiber.join(firstEventFiber);
 
-      assert.equal(firstEvent._tag, "Some");
+      NodeAssert.equal(firstEvent._tag, "Some");
       if (firstEvent._tag !== "Some") {
         return;
       }
-      assert.equal(firstEvent.value.type, "request.resolved");
+      NodeAssert.equal(firstEvent.value.type, "request.resolved");
       if (firstEvent.value.type !== "request.resolved") {
         return;
       }
-      assert.equal(firstEvent.value.payload.requestType, "command_execution_approval");
+      NodeAssert.equal(firstEvent.value.payload.requestType, "command_execution_approval");
     }),
   );
 
@@ -685,9 +935,9 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
       const event: ProviderEvent = {
         id: asEventId("evt-file-read-request-resolved"),
         kind: "notification",
-        provider: "codex",
+        provider: ProviderDriverKind.make("codex"),
         threadId: asThreadId("thread-1"),
-        createdAt: new Date().toISOString(),
+        createdAt: "2026-01-01T00:00:00.000Z",
         method: "serverRequest/resolved",
         requestKind: "file-read",
         requestId: ApprovalRequestId.make("req-file-read-1"),
@@ -700,15 +950,15 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
       yield* runtime.emit(event);
       const firstEvent = yield* Fiber.join(firstEventFiber);
 
-      assert.equal(firstEvent._tag, "Some");
+      NodeAssert.equal(firstEvent._tag, "Some");
       if (firstEvent._tag !== "Some") {
         return;
       }
-      assert.equal(firstEvent.value.type, "request.resolved");
+      NodeAssert.equal(firstEvent.value.type, "request.resolved");
       if (firstEvent.value.type !== "request.resolved") {
         return;
       }
-      assert.equal(firstEvent.value.payload.requestType, "file_read_approval");
+      NodeAssert.equal(firstEvent.value.payload.requestType, "file_read_approval");
     }),
   );
 
@@ -720,9 +970,9 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
       const event: ProviderEvent = {
         id: asEventId("evt-user-input-empty"),
         kind: "notification",
-        provider: "codex",
+        provider: ProviderDriverKind.make("codex"),
         threadId: asThreadId("thread-1"),
-        createdAt: new Date().toISOString(),
+        createdAt: "2026-01-01T00:00:00.000Z",
         method: "item/tool/requestUserInput/answered",
         payload: {
           answers: {
@@ -736,15 +986,15 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
       yield* runtime.emit(event);
       const firstEvent = yield* Fiber.join(firstEventFiber);
 
-      assert.equal(firstEvent._tag, "Some");
+      NodeAssert.equal(firstEvent._tag, "Some");
       if (firstEvent._tag !== "Some") {
         return;
       }
-      assert.equal(firstEvent.value.type, "user-input.resolved");
+      NodeAssert.equal(firstEvent.value.type, "user-input.resolved");
       if (firstEvent.value.type !== "user-input.resolved") {
         return;
       }
-      assert.deepEqual(firstEvent.value.payload.answers, {
+      NodeAssert.deepEqual(firstEvent.value.payload.answers, {
         scope: [],
       });
     }),
@@ -760,9 +1010,9 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
       const event: ProviderEvent = {
         id: asEventId("evt-windows-sandbox-failed"),
         kind: "notification",
-        provider: "codex",
+        provider: ProviderDriverKind.make("codex"),
         threadId: asThreadId("thread-1"),
-        createdAt: new Date().toISOString(),
+        createdAt: "2026-01-01T00:00:00.000Z",
         method: "windowsSandbox/setupCompleted",
         message: "Sandbox setup failed",
         payload: {
@@ -775,20 +1025,20 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
       yield* runtime.emit(event);
       const events = Array.from(yield* Fiber.join(eventsFiber));
 
-      assert.equal(events.length, 2);
+      NodeAssert.equal(events.length, 2);
 
       const firstEvent = events[0];
       const secondEvent = events[1];
 
-      assert.equal(firstEvent?.type, "session.state.changed");
+      NodeAssert.equal(firstEvent?.type, "session.state.changed");
       if (firstEvent?.type === "session.state.changed") {
-        assert.equal(firstEvent.payload.state, "error");
-        assert.equal(firstEvent.payload.reason, "Sandbox setup failed");
+        NodeAssert.equal(firstEvent.payload.state, "error");
+        NodeAssert.equal(firstEvent.payload.reason, "Sandbox setup failed");
       }
 
-      assert.equal(secondEvent?.type, "runtime.warning");
+      NodeAssert.equal(secondEvent?.type, "runtime.warning");
       if (secondEvent?.type === "runtime.warning") {
-        assert.equal(secondEvent.payload.message, "Sandbox setup failed");
+        NodeAssert.equal(secondEvent.payload.message, "Sandbox setup failed");
       }
     }),
   );
@@ -805,9 +1055,9 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
         yield* runtime.emit({
           id: asEventId("evt-user-input-requested"),
           kind: "request",
-          provider: "codex",
+          provider: ProviderDriverKind.make("codex"),
           threadId: asThreadId("thread-1"),
-          createdAt: new Date().toISOString(),
+          createdAt: "2026-01-01T00:00:00.000Z",
           method: "item/tool/requestUserInput",
           requestId: ApprovalRequestId.make("req-user-input-1"),
           payload: {
@@ -832,9 +1082,9 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
         yield* runtime.emit({
           id: asEventId("evt-user-input-resolved"),
           kind: "notification",
-          provider: "codex",
+          provider: ProviderDriverKind.make("codex"),
           threadId: asThreadId("thread-1"),
-          createdAt: new Date().toISOString(),
+          createdAt: "2026-01-01T00:00:00.000Z",
           method: "item/tool/requestUserInput/answered",
           requestId: ApprovalRequestId.make("req-user-input-1"),
           payload: {
@@ -847,17 +1097,17 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
         } satisfies ProviderEvent);
 
         const events = Array.from(yield* Fiber.join(eventsFiber));
-        assert.equal(events[0]?.type, "user-input.requested");
+        NodeAssert.equal(events[0]?.type, "user-input.requested");
         if (events[0]?.type === "user-input.requested") {
-          assert.equal(events[0].requestId, "req-user-input-1");
-          assert.equal(events[0].payload.questions[0]?.id, "sandbox_mode");
-          assert.equal(events[0].payload.questions[0]?.multiSelect, false);
+          NodeAssert.equal(events[0].requestId, "req-user-input-1");
+          NodeAssert.equal(events[0].payload.questions[0]?.id, "sandbox_mode");
+          NodeAssert.equal(events[0].payload.questions[0]?.multiSelect, false);
         }
 
-        assert.equal(events[1]?.type, "user-input.resolved");
+        NodeAssert.equal(events[1]?.type, "user-input.resolved");
         if (events[1]?.type === "user-input.resolved") {
-          assert.equal(events[1].requestId, "req-user-input-1");
-          assert.deepEqual(events[1].payload.answers, {
+          NodeAssert.equal(events[1].requestId, "req-user-input-1");
+          NodeAssert.deepEqual(events[1].payload.answers, {
             sandbox_mode: "workspace-write",
           });
         }
@@ -872,10 +1122,10 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
       yield* runtime.emit({
         id: asEventId("evt-codex-thread-token-usage-updated"),
         kind: "notification",
-        provider: "codex",
+        provider: ProviderDriverKind.make("codex"),
         threadId: asThreadId("thread-1"),
         turnId: asTurnId("turn-1"),
-        createdAt: new Date().toISOString(),
+        createdAt: "2026-01-01T00:00:00.000Z",
         method: "thread/tokenUsage/updated",
         payload: {
           threadId: "thread-1",
@@ -901,16 +1151,16 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
       } satisfies ProviderEvent);
 
       const firstEvent = yield* Fiber.join(firstEventFiber);
-      assert.equal(firstEvent._tag, "Some");
+      NodeAssert.equal(firstEvent._tag, "Some");
       if (firstEvent._tag !== "Some") {
         return;
       }
-      assert.equal(firstEvent.value.type, "thread.token-usage.updated");
+      NodeAssert.equal(firstEvent.value.type, "thread.token-usage.updated");
       if (firstEvent.value.type !== "thread.token-usage.updated") {
         return;
       }
 
-      assert.deepEqual(firstEvent.value.payload.usage, {
+      NodeAssert.deepEqual(firstEvent.value.payload.usage, {
         usedTokens: 126,
         totalProcessedTokens: 11_839,
         maxTokens: 258_400,
@@ -931,7 +1181,15 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
 
 const scopedLifecycleRuntimeFactory = makeScopedRuntimeFactory();
 const scopedLifecycleLayer = it.layer(
-  makeCodexAdapterLive({ makeRuntime: scopedLifecycleRuntimeFactory.factory }).pipe(
+  Layer.effect(
+    CodexAdapter,
+    Effect.gen(function* () {
+      const codexConfig = decodeCodexSettings({});
+      return yield* makeCodexAdapter(codexConfig, {
+        makeRuntime: scopedLifecycleRuntimeFactory.factory,
+      });
+    }),
+  ).pipe(
     Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
     Layer.provideMerge(ServerSettingsService.layerTest()),
     Layer.provideMerge(providerSessionDirectoryTestLayer),
@@ -946,28 +1204,36 @@ scopedLifecycleLayer("CodexAdapterLive scoped lifecycle", (it) => {
       const adapter = yield* CodexAdapter;
 
       yield* adapter.startSession({
-        provider: "codex",
+        provider: ProviderDriverKind.make("codex"),
         threadId: asThreadId("thread-stop"),
         runtimeMode: "full-access",
       });
 
       const runtime = scopedLifecycleRuntimeFactory.lastRuntime;
-      assert.ok(runtime);
+      NodeAssert.ok(runtime);
 
       yield* adapter.stopSession(asThreadId("thread-stop"));
 
-      assert.equal(runtime.closeImpl.mock.calls.length, 1);
-      assert.deepStrictEqual(scopedLifecycleRuntimeFactory.releasedThreadIds, [
+      NodeAssert.equal(runtime.closeImpl.mock.calls.length, 1);
+      NodeAssert.deepStrictEqual(scopedLifecycleRuntimeFactory.releasedThreadIds, [
         asThreadId("thread-stop"),
       ]);
-      assert.equal(yield* adapter.hasSession(asThreadId("thread-stop")), false);
+      NodeAssert.equal(yield* adapter.hasSession(asThreadId("thread-stop")), false);
     }),
   );
 });
 
 const scopedFailureRuntimeFactory = makeScopedRuntimeFactory({ failConstruction: true });
 const scopedFailureLayer = it.layer(
-  makeCodexAdapterLive({ makeRuntime: scopedFailureRuntimeFactory.factory }).pipe(
+  Layer.effect(
+    CodexAdapter,
+    Effect.gen(function* () {
+      const codexConfig = decodeCodexSettings({});
+      return yield* makeCodexAdapter(codexConfig, {
+        makeRuntime: scopedFailureRuntimeFactory.factory,
+      });
+    }),
+  ).pipe(
     Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
     Layer.provideMerge(ServerSettingsService.layerTest()),
     Layer.provideMerge(providerSessionDirectoryTestLayer),
@@ -983,35 +1249,43 @@ scopedFailureLayer("CodexAdapterLive scoped startup failure", (it) => {
 
       const result = yield* adapter
         .startSession({
-          provider: "codex",
+          provider: ProviderDriverKind.make("codex"),
           threadId: asThreadId("thread-fail"),
           runtimeMode: "full-access",
         })
         .pipe(Effect.result);
 
-      assert.equal(result._tag, "Failure");
-      assert.equal(result.failure._tag, "ProviderAdapterProcessError");
-      assert.deepStrictEqual(scopedFailureRuntimeFactory.releasedThreadIds, [
+      NodeAssert.equal(result._tag, "Failure");
+      NodeAssert.equal(result.failure._tag, "ProviderAdapterProcessError");
+      NodeAssert.deepStrictEqual(scopedFailureRuntimeFactory.releasedThreadIds, [
         asThreadId("thread-fail"),
       ]);
-      assert.equal(yield* adapter.hasSession(asThreadId("thread-fail")), false);
+      NodeAssert.equal(yield* adapter.hasSession(asThreadId("thread-fail")), false);
     }),
   );
 });
 
 it.effect("flushes managed native logs when the adapter layer shuts down", () =>
   Effect.gen(function* () {
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "t3-codex-adapter-native-log-"));
-    const basePath = path.join(tempDir, "provider-native.ndjson");
+    const tempDir = NodeFS.mkdtempSync(
+      NodePath.join(NodeOS.tmpdir(), "t3-codex-adapter-native-log-"),
+    );
+    const basePath = NodePath.join(tempDir, "provider-native.ndjson");
     const runtimeFactory = makeRuntimeFactory();
     const scope = yield* Scope.make("sequential");
     let scopeClosed = false;
 
     try {
-      const layer = makeCodexAdapterLive({
-        makeRuntime: runtimeFactory.factory,
-        nativeEventLogPath: basePath,
-      }).pipe(
+      const layer = Layer.effect(
+        CodexAdapter,
+        Effect.gen(function* () {
+          const codexConfig = decodeCodexSettings({});
+          return yield* makeCodexAdapter(codexConfig, {
+            makeRuntime: runtimeFactory.factory,
+            nativeEventLogPath: basePath,
+          });
+        }),
+      ).pipe(
         Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
         Layer.provideMerge(ServerSettingsService.layerTest()),
         Layer.provideMerge(providerSessionDirectoryTestLayer),
@@ -1021,21 +1295,21 @@ it.effect("flushes managed native logs when the adapter layer shuts down", () =>
       const adapter = yield* Effect.service(CodexAdapter).pipe(Effect.provide(context));
 
       yield* adapter.startSession({
-        provider: "codex",
+        provider: ProviderDriverKind.make("codex"),
         threadId: asThreadId("thread-logger"),
         runtimeMode: "full-access",
       });
 
       const runtime = runtimeFactory.lastRuntime;
-      assert.ok(runtime);
+      NodeAssert.ok(runtime);
 
       const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
       yield* runtime.emit({
         id: asEventId("evt-native-log"),
         kind: "notification",
-        provider: "codex",
+        provider: ProviderDriverKind.make("codex"),
         threadId: asThreadId("thread-logger"),
-        createdAt: new Date().toISOString(),
+        createdAt: "2026-01-01T00:00:00.000Z",
         method: "process/stderr",
         message: "native flush test",
       } satisfies ProviderEvent);
@@ -1044,15 +1318,15 @@ it.effect("flushes managed native logs when the adapter layer shuts down", () =>
       yield* Scope.close(scope, Exit.void);
       scopeClosed = true;
 
-      const threadLogPath = path.join(tempDir, "thread-logger.log");
-      assert.equal(fs.existsSync(threadLogPath), true);
-      const contents = fs.readFileSync(threadLogPath, "utf8");
-      assert.match(contents, /NTIVE: .*"message":"native flush test"/);
+      const threadLogPath = NodePath.join(tempDir, "thread-logger.log");
+      NodeAssert.equal(NodeFS.existsSync(threadLogPath), true);
+      const contents = NodeFS.readFileSync(threadLogPath, "utf8");
+      NodeAssert.match(contents, /NTIVE: .*"message":"native flush test"/);
     } finally {
       if (!scopeClosed) {
         yield* Scope.close(scope, Exit.void);
       }
-      fs.rmSync(tempDir, { recursive: true, force: true });
+      NodeFS.rmSync(tempDir, { recursive: true, force: true });
     }
   }),
 );

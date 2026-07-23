@@ -1,4 +1,5 @@
 import type {
+  ProviderDriverKind,
   ModelCapabilities,
   ServerProvider,
   ServerProviderAuth,
@@ -7,10 +8,15 @@ import type {
   ServerProviderModel,
   ServerProviderState,
 } from "@t3tools/contracts";
-import { Effect, Stream } from "effect";
+import * as Effect from "effect/Effect";
+import * as PlatformError from "effect/PlatformError";
+import * as Schema from "effect/Schema";
+import * as Stream from "effect/Stream";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
-import { normalizeModelSlug } from "@t3tools/shared/model";
+import { normalizeCustomModelSlug } from "@t3tools/shared/model";
 import { isWindowsCommandNotFound } from "../processRunner.ts";
+import { createProviderVersionAdvisory } from "./providerMaintenance.ts";
+import { collectUint8StreamText } from "../stream/collectUint8StreamText.ts";
 
 export const DEFAULT_TIMEOUT_MS = 4_000;
 // Auth status checks involve disk/network lookups and can be slow on first run (especially Windows)
@@ -22,6 +28,22 @@ export interface CommandResult {
   readonly code: number;
 }
 
+export class ProviderCommandNotFoundError extends Schema.TaggedErrorClass<ProviderCommandNotFoundError>()(
+  "ProviderCommandNotFoundError",
+  {
+    binaryPath: Schema.String,
+    exitCode: Schema.Number,
+    stdoutLength: Schema.Number,
+    stderrLength: Schema.Number,
+  },
+) {
+  override get message(): string {
+    return `Provider command ${this.binaryPath} was not found (exit code ${this.exitCode}).`;
+  }
+}
+
+const isProviderCommandNotFoundError = Schema.is(ProviderCommandNotFoundError);
+
 export interface ProviderProbeResult {
   readonly installed: boolean;
   readonly version: string | null;
@@ -30,15 +52,24 @@ export interface ProviderProbeResult {
   readonly message?: string;
 }
 
+export interface ServerProviderPresentation {
+  readonly displayName: string;
+  readonly badgeLabel?: string;
+  readonly showInteractionModeToggle?: boolean;
+  readonly requiresNewThreadForModelChange?: boolean;
+}
+
+export type ServerProviderDraft = Omit<ServerProvider, "instanceId" | "driver">;
+
 export function nonEmptyTrimmed(value: string | undefined): string | undefined {
   if (!value) return undefined;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
-export function isCommandMissingCause(error: Error): boolean {
-  const lower = error.message.toLowerCase();
-  return lower.includes("enoent") || lower.includes("notfound");
+export function isCommandMissingCause(error: unknown): boolean {
+  if (isProviderCommandNotFoundError(error)) return true;
+  return error instanceof PlatformError.PlatformError && error.reason._tag === "NotFound";
 }
 
 export const spawnAndCollect = (binaryPath: string, command: ChildProcess.Command) =>
@@ -55,8 +86,13 @@ export const spawnAndCollect = (binaryPath: string, command: ChildProcess.Comman
     );
 
     const result: CommandResult = { stdout, stderr, code: exitCode };
-    if (isWindowsCommandNotFound(exitCode, stderr)) {
-      return yield* Effect.fail(new Error(`spawn ${binaryPath} ENOENT`));
+    if (yield* isWindowsCommandNotFound(exitCode, stderr)) {
+      return yield* new ProviderCommandNotFoundError({
+        binaryPath,
+        exitCode,
+        stdoutLength: stdout.length,
+        stderrLength: stderr.length,
+      });
     }
     return result;
   }).pipe(Effect.scoped);
@@ -104,7 +140,6 @@ export function parseGenericCliVersion(output: string): string | null {
 
 export function providerModelsFromSettings(
   builtInModels: ReadonlyArray<ServerProviderModel>,
-  provider: ServerProvider["provider"],
   customModels: ReadonlyArray<string>,
   customModelCapabilities: ModelCapabilities,
 ): ReadonlyArray<ServerProviderModel> {
@@ -113,7 +148,7 @@ export function providerModelsFromSettings(
   const customEntries: ServerProviderModel[] = [];
 
   for (const candidate of customModels) {
-    const normalized = normalizeModelSlug(candidate, provider);
+    const normalized = normalizeCustomModelSlug(candidate);
     if (!normalized || seen.has(normalized)) {
       continue;
     }
@@ -129,17 +164,75 @@ export function providerModelsFromSettings(
   return [...resolvedBuiltInModels, ...customEntries];
 }
 
+export function buildSelectOptionDescriptor(input: {
+  readonly id: string;
+  readonly label: string;
+  readonly options:
+    | ReadonlyArray<{ value: string; label: string; isDefault?: boolean | undefined }>
+    | undefined;
+  readonly description?: string;
+  readonly promptInjectedValues?: ReadonlyArray<string>;
+}) {
+  const options = (input.options ?? []).map((option) =>
+    option.isDefault
+      ? { id: option.value, label: option.label, isDefault: true }
+      : { id: option.value, label: option.label },
+  );
+  const currentValue = options.find((option) => option.isDefault)?.id;
+  return {
+    id: input.id,
+    label: input.label,
+    type: "select" as const,
+    options,
+    ...(currentValue ? { currentValue } : {}),
+    ...(input.description ? { description: input.description } : {}),
+    ...(input.promptInjectedValues && input.promptInjectedValues.length > 0
+      ? { promptInjectedValues: [...input.promptInjectedValues] }
+      : {}),
+  };
+}
+
+export function buildBooleanOptionDescriptor(input: {
+  readonly id: string;
+  readonly label: string;
+  readonly currentValue?: boolean;
+  readonly description?: string;
+}) {
+  return {
+    id: input.id,
+    label: input.label,
+    type: "boolean" as const,
+    ...(input.description ? { description: input.description } : {}),
+    ...(typeof input.currentValue === "boolean" ? { currentValue: input.currentValue } : {}),
+  };
+}
+
 export function buildServerProvider(input: {
-  provider: ServerProvider["provider"];
+  driver?: ProviderDriverKind;
+  presentation: ServerProviderPresentation;
   enabled: boolean;
   checkedAt: string;
   models: ReadonlyArray<ServerProviderModel>;
   slashCommands?: ReadonlyArray<ServerProviderSlashCommand>;
   skills?: ReadonlyArray<ServerProviderSkill>;
   probe: ProviderProbeResult;
-}): ServerProvider {
+}): ServerProviderDraft {
+  const versionAdvisory = input.driver
+    ? createProviderVersionAdvisory({
+        driver: input.driver,
+        currentVersion: input.probe.version,
+        checkedAt: input.checkedAt,
+      })
+    : undefined;
   return {
-    provider: input.provider,
+    displayName: input.presentation.displayName,
+    ...(input.presentation.badgeLabel ? { badgeLabel: input.presentation.badgeLabel } : {}),
+    ...(typeof input.presentation.showInteractionModeToggle === "boolean"
+      ? { showInteractionModeToggle: input.presentation.showInteractionModeToggle }
+      : {}),
+    ...(typeof input.presentation.requiresNewThreadForModelChange === "boolean"
+      ? { requiresNewThreadForModelChange: input.presentation.requiresNewThreadForModelChange }
+      : {}),
     enabled: input.enabled,
     installed: input.probe.installed,
     version: input.probe.version,
@@ -150,16 +243,11 @@ export function buildServerProvider(input: {
     models: input.models,
     slashCommands: [...(input.slashCommands ?? [])],
     skills: [...(input.skills ?? [])],
+    ...(versionAdvisory ? { versionAdvisory } : {}),
   };
 }
 
 export const collectStreamAsString = <E>(
   stream: Stream.Stream<Uint8Array, E>,
 ): Effect.Effect<string, E> =>
-  stream.pipe(
-    Stream.decodeText(),
-    Stream.runFold(
-      () => "",
-      (acc, chunk) => acc + chunk,
-    ),
-  );
+  collectUint8StreamText({ stream }).pipe(Effect.map((collected) => collected.text));
