@@ -6,6 +6,14 @@ import {
   type TurnId,
 } from "@t3tools/contracts";
 import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
+import type { AgentPanelModel } from "@t3tools/client-runtime/state/subagentRuntime";
+import {
+  emptyAgentPanelModel,
+  formatSubagentTokenCount,
+} from "@t3tools/client-runtime/state/subagentRuntime";
+
+const EMPTY_AGENT_PANEL_MODEL = emptyAgentPanelModel();
+const NOOP_OPEN_AGENTS = () => {};
 import { resolveChatListAnchoredEndSpace } from "@t3tools/shared/chatList";
 import {
   createContext,
@@ -32,7 +40,6 @@ import {
   workLogEntryIsToolLike,
 } from "../../session-logic";
 import { type TurnDiffSummary } from "../../types";
-import { summarizeTurnDiffStats } from "../../lib/turnDiffTree";
 import {
   getRenderablePatch,
   resolveDiffThemeName,
@@ -44,11 +51,8 @@ import {
   CheckIcon,
   ChevronDownIcon,
   ChevronRightIcon,
-  ChevronsDownUpIcon,
-  ChevronsUpDownIcon,
   CircleAlertIcon,
   EyeIcon,
-  FileDiffIcon,
   GlobeIcon,
   HammerIcon,
   MessageCircleIcon,
@@ -65,8 +69,8 @@ import {
 import { Button } from "../ui/button";
 import { buildExpandedImagePreview, ExpandedImagePreview } from "./ExpandedImagePreview";
 import { ProposedPlanCard } from "./ProposedPlanCard";
-import { ChangedFilesTree } from "./ChangedFilesTree";
-import { DiffStatLabel, hasNonZeroStat } from "./DiffStatLabel";
+import { ChangedFilesCard } from "./ChangedFilesTree";
+import { shouldAutoExpandChangedFiles } from "./changedFilesPresentation";
 import { MessageCopyButton } from "./MessageCopyButton";
 import {
   computeStableMessagesTimelineRows,
@@ -139,12 +143,15 @@ interface TimelineRowSharedState {
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
   onToggleTurnFold: (turnId: TurnId) => void;
   onToggleWorkGroup: (groupId: string, anchorElement?: HTMLElement) => void;
+  agentPanelModel: AgentPanelModel;
+  onOpenAgents: () => void;
 }
 
 interface TimelineRowActivityState {
   isWorking: boolean;
   isRevertingCheckpoint: boolean;
   activeTurnInProgress: boolean;
+  latestTurnId: TurnId | null;
 }
 
 const TimelineRowCtx = createContext<TimelineRowSharedState>(null!);
@@ -159,6 +166,8 @@ const EMPTY_TIMELINE_SKILLS: ReadonlyArray<Pick<ServerProviderSkill, "name" | "d
 // ---------------------------------------------------------------------------
 
 interface MessagesTimelineProps {
+  agentPanelModel?: AgentPanelModel;
+  onOpenAgents?: () => void;
   isWorking: boolean;
   activeTurnInProgress: boolean;
   activeTurnStartedAt: string | null;
@@ -197,6 +206,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   isWorking,
   activeTurnInProgress,
   activeTurnStartedAt,
+  agentPanelModel = EMPTY_AGENT_PANEL_MODEL,
+  onOpenAgents = NOOP_OPEN_AGENTS,
   listRef,
   timelineEntries,
   latestTurn,
@@ -433,6 +444,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       onOpenTurnDiff,
       onToggleTurnFold,
       onToggleWorkGroup,
+      agentPanelModel,
+      onOpenAgents,
     }),
     [
       timestampFormat,
@@ -447,6 +460,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       onOpenTurnDiff,
       onToggleTurnFold,
       onToggleWorkGroup,
+      agentPanelModel,
+      onOpenAgents,
     ],
   );
   const activityState = useMemo<TimelineRowActivityState>(
@@ -454,8 +469,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       isWorking,
       isRevertingCheckpoint,
       activeTurnInProgress,
+      latestTurnId: latestTurn?.turnId ?? null,
     }),
-    [activeTurnInProgress, isRevertingCheckpoint, isWorking],
+    [activeTurnInProgress, isRevertingCheckpoint, isWorking, latestTurn?.turnId],
   );
 
   // Stable renderItem — no closure deps. Row components read shared state
@@ -892,7 +908,7 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
 
   return (
     <div className="group flex flex-col items-end gap-1">
-      <div className="relative max-w-[80%] rounded-2xl bg-secondary p-3">
+      <div className="relative max-w-[80%] rounded-2xl bg-accent p-3">
         {regularImages.length > 0 && (
           <div className="mb-2 grid max-w-[420px] grid-cols-2 gap-2">
             {regularImages.map((image: NonNullable<TimelineMessage["attachments"]>[number]) => (
@@ -1278,83 +1294,32 @@ function AssistantChangedFilesSectionInner({
   resolvedTheme: "light" | "dark";
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
 }) {
-  const allDirectoriesExpanded = useUiStateStore(
-    (store) => store.threadChangedFilesExpandedById[routeThreadKey]?.[turnSummary.turnId] ?? true,
+  const activity = use(TimelineRowActivityCtx);
+  const isLatestTurn = activity.latestTurnId === turnSummary.turnId;
+  const persistedExpanded = useUiStateStore(
+    (store) => store.threadChangedFilesExpandedById[routeThreadKey]?.[turnSummary.turnId],
   );
   const setExpanded = useUiStateStore((store) => store.setThreadChangedFilesExpanded);
-  const summaryStat = summarizeTurnDiffStats(checkpointFiles);
+  const [autoExpanded] = useState(() =>
+    shouldAutoExpandChangedFiles(checkpointFiles, isLatestTurn),
+  );
+  const [allDirectoriesExpanded, setAllDirectoriesExpanded] = useState(autoExpanded);
+  const expanded = persistedExpanded ?? (isLatestTurn && autoExpanded);
 
   return (
-    <div className="mt-4 rounded-2xl bg-background p-2 pt-4 shadow-xs/5 not-dark:bg-clip-padding dark:bg-input/32">
-      <div className="sticky top-2 z-10 mb-3 flex items-center justify-between gap-2 bg-background px-2 before:absolute before:inset-x-0 before:-top-4 before:h-4 before:bg-background before:content-[''] dark:bg-[color-mix(in_srgb,var(--foreground)_2.5%,var(--background))] dark:before:bg-[color-mix(in_srgb,var(--foreground)_2.5%,var(--background))]">
-        <p className="flex items-center gap-1 whitespace-nowrap font-medium text-foreground text-xs leading-4">
-          <span>
-            {checkpointFiles.length} changed file{checkpointFiles.length === 1 ? "" : "s"}
-          </span>
-          {hasNonZeroStat(summaryStat) && (
-            <DiffStatLabel
-              additions={summaryStat.additions}
-              className="text-xs leading-4"
-              deletions={summaryStat.deletions}
-              layout="inline"
-            />
-          )}
-        </p>
-        <div className="flex items-center gap-1.5">
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  type="button"
-                  size="icon-xs"
-                  variant="outline"
-                  className="!size-[22px]"
-                  aria-label={allDirectoriesExpanded ? "Collapse all" : "Expand all"}
-                  data-scroll-anchor-ignore
-                  onClick={() =>
-                    setExpanded(routeThreadKey, turnSummary.turnId, !allDirectoriesExpanded)
-                  }
-                />
-              }
-            >
-              {allDirectoriesExpanded ? (
-                <ChevronsDownUpIcon className="size-3" />
-              ) : (
-                <ChevronsUpDownIcon className="size-3" />
-              )}
-            </TooltipTrigger>
-            <TooltipPopup side="top">
-              {allDirectoriesExpanded ? "Collapse all" : "Expand all"}
-            </TooltipPopup>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  type="button"
-                  size="icon-xs"
-                  variant="outline"
-                  className="!size-[22px]"
-                  aria-label="View diff"
-                  onClick={() => onOpenTurnDiff(turnSummary.turnId, checkpointFiles[0]?.path)}
-                />
-              }
-            >
-              <FileDiffIcon className="size-3" />
-            </TooltipTrigger>
-            <TooltipPopup side="top">View diff</TooltipPopup>
-          </Tooltip>
-        </div>
-      </div>
-      <ChangedFilesTree
-        key={`changed-files-tree:${turnSummary.turnId}`}
-        turnId={turnSummary.turnId}
-        files={checkpointFiles}
-        allDirectoriesExpanded={allDirectoriesExpanded}
-        resolvedTheme={resolvedTheme}
-        onOpenTurnDiff={onOpenTurnDiff}
-      />
-    </div>
+    <ChangedFilesCard
+      turnId={turnSummary.turnId}
+      files={checkpointFiles}
+      expanded={expanded}
+      showCompactPreview={isLatestTurn}
+      allDirectoriesExpanded={allDirectoriesExpanded}
+      resolvedTheme={resolvedTheme}
+      onExpandedChange={(nextExpanded) =>
+        setExpanded(routeThreadKey, turnSummary.turnId, nextExpanded)
+      }
+      onToggleAllDirectories={() => setAllDirectoriesExpanded((current) => !current)}
+      onOpenTurnDiff={onOpenTurnDiff}
+    />
   );
 }
 
@@ -1950,8 +1915,14 @@ function workEntryIconName(workEntry: TimelineWorkEntry): WorkEntryIconName {
     case "mcp_tool_call":
       return "wrench";
     case "dynamic_tool_call":
-    case "collab_agent_tool_call":
       return "hammer";
+    case "collab_agent_tool_call":
+      return "bot";
+  }
+
+  // Subagent lifecycle rows (grouped by taskId) get agent identity chrome.
+  if (workEntry.taskId) {
+    return "bot";
   }
 
   return workToneIcon(workEntry.tone).iconName;
@@ -1974,7 +1945,113 @@ function toolWorkEntryHeading(workEntry: TimelineWorkEntry): string {
 
 const stopRowToggle = (e: { stopPropagation: () => void }) => e.stopPropagation();
 
+/**
+ * A1 spawn CTA: one anchored row per workflow run (or per-turn direct-spawn
+ * batch). Live status is derived from the shared agent panel model at render
+ * time — the row itself never re-renders a roster; the Agents panel is the
+ * only roster. Freezes to past tense when every member settles. Static dot,
+ * no animation.
+ */
+const AgentSpawnCtaRow = memo(function AgentSpawnCtaRow(props: { workEntry: TimelineWorkEntry }) {
+  const { workEntry } = props;
+  const { agentPanelModel, onOpenAgents } = use(TimelineRowCtx);
+  const spawn = workEntry.agentSpawn;
+  if (!spawn) {
+    return null;
+  }
+
+  const memberIds = new Set(spawn.agentTaskIds);
+  const workflowGroup = spawn.workflowId
+    ? agentPanelModel.workflows.find((group) => group.workflow.id === spawn.workflowId)
+    : undefined;
+  const agents = workflowGroup
+    ? [...workflowGroup.phases.flatMap((phase) => phase.members), ...workflowGroup.unphasedMembers]
+    : agentPanelModel.directAgents.filter((agent) => memberIds.has(agent.id));
+  const agentCount = Math.max(
+    agents.length,
+    Math.max(memberIds.size - (spawn.workflowId ? 1 : 0), 0),
+  );
+
+  const running = agents.filter(
+    (agent) => agent.status === "running" || agent.status === "pending",
+  ).length;
+  const waiting = agents.filter((agent) => agent.status === "waiting").length;
+  const failed = agents.filter((agent) => agent.status === "failed").length;
+  // The coordinator's own status is authoritative for workflows: dynamic
+  // spawns mean the member list can be momentarily all-settled while the
+  // run is still mid-flight (the "completed" lie from live testing). A
+  // workflow is live until the coordinator itself reaches a terminal state.
+  const coordinatorStatus = workflowGroup?.workflow.status;
+  const coordinatorSettled =
+    coordinatorStatus === "completed" ||
+    coordinatorStatus === "failed" ||
+    coordinatorStatus === "cancelled" ||
+    coordinatorStatus === "interrupted";
+  const live = workflowGroup !== undefined ? !coordinatorSettled : running + waiting > 0;
+  // Same rule as the panel footer: providers may aggregate member usage into
+  // the coordinator, so count the coordinator only when no members exist.
+  const totalTokens = agents.reduce(
+    (sum, agent) => sum + (agent.usage?.totalTokens ?? 0),
+    spawn.workflowId && agents.length === 0 ? (workflowGroup?.workflow.usage?.totalTokens ?? 0) : 0,
+  );
+
+  const livePhase = workflowGroup?.phases.find((phase) => phase.state === "running");
+  const workflowName =
+    workflowGroup?.workflow.workflowName ?? workflowGroup?.workflow.title ?? null;
+
+  // One steady in-flight presentation (monitoring-pill rule): waiting and
+  // stalled agents read as working; only settled states differentiate.
+  const working = running + waiting;
+  const dotClass = live ? "bg-info" : failed > 0 ? "bg-destructive" : "bg-success";
+  const lead = live
+    ? `Kicked off ${agentCount} subagent${agentCount === 1 ? "" : "s"}`
+    : `Ran ${agentCount} subagent${agentCount === 1 ? "" : "s"}`;
+  const status = live
+    ? livePhase
+      ? `${livePhase.title} · ${livePhase.activeCount} working`
+      : working > 0
+        ? `${working} working`
+        : "working"
+    : failed > 0
+      ? `${failed} failed`
+      : "✓ completed";
+
+  return (
+    <button
+      type="button"
+      onClick={onOpenAgents}
+      className="-mx-1 flex w-full items-center gap-2 rounded-md border border-border/60 bg-card/50 px-2.5 py-1.5 text-left text-[13px] transition hover:bg-accent/50"
+    >
+      <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", dotClass)} />
+      <WorkEntryIconSvg name="bot" className="size-3.5 shrink-0 text-muted-foreground" />
+      <span className="min-w-0 truncate">
+        <span className="font-medium">{lead}</span>
+        {workflowName ? <span className="text-muted-foreground"> · {workflowName}</span> : null}
+      </span>
+      <span className="ml-auto flex shrink-0 items-center gap-2 font-mono text-[.7rem] text-muted-foreground">
+        <span>{status}</span>
+        {totalTokens > 0 ? (
+          <span className="tabular-nums">Σ {formatSubagentTokenCount(totalTokens)}</span>
+        ) : null}
+        <span className="text-info-foreground">{live ? "Open Agents ▸" : "View ▸"}</span>
+      </span>
+    </button>
+  );
+});
+
 const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
+  workEntry: TimelineWorkEntry;
+  workspaceRoot: string | undefined;
+}) {
+  const { workEntry, workspaceRoot } = props;
+  // Before any hooks: spawn CTA rows render their own component.
+  if (workEntry.agentSpawn) {
+    return <AgentSpawnCtaRow workEntry={workEntry} />;
+  }
+  return <PlainWorkEntryRow workEntry={workEntry} workspaceRoot={workspaceRoot} />;
+});
+
+const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
   workEntry: TimelineWorkEntry;
   workspaceRoot: string | undefined;
 }) {
