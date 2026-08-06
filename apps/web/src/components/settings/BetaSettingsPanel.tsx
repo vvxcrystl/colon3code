@@ -57,6 +57,9 @@ function AutoSettleDaysInput({
 
 export function BetaSettingsPanel() {
   const sidebarV2Enabled = useSidebarV2Enabled();
+  const reasoningSelectorEnabled = useClientSettings(
+    (settings) => settings.experimentalReasoningSelector,
+  );
   const sidebarAutoSettleAfterDays = useClientSettings(
     (settings) => settings.sidebarAutoSettleAfterDays,
   );
@@ -80,6 +83,19 @@ export function BetaSettingsPanel() {
                 })
               }
               aria-label="Enable the sidebar v2 beta"
+            />
+          }
+        />
+        <SettingsRow
+          {...searchableSetting("reasoning-selector")}
+          description="Replace the reasoning menu with an animated, draggable selector inspired by ChatGPT. Applies to models that expose reasoning levels."
+          control={
+            <Switch
+              checked={reasoningSelectorEnabled}
+              onCheckedChange={(checked) =>
+                updateSettings({ experimentalReasoningSelector: Boolean(checked) })
+              }
+              aria-label="Enable the experimental reasoning selector"
             />
           }
         />

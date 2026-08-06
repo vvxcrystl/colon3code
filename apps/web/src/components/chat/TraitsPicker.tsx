@@ -14,9 +14,9 @@ import {
   getProviderOptionDescriptors,
   isClaudeUltrathinkPrompt,
 } from "@t3tools/shared/model";
-import { memo, useCallback, useState } from "react";
+import { memo, useCallback, useRef, useState } from "react";
 import type { VariantProps } from "class-variance-authority";
-import { ZapIcon } from "lucide-react";
+import { ChevronRightIcon, ZapIcon } from "lucide-react";
 import { buttonVariants } from "../ui/button";
 import {
   Menu,
@@ -27,6 +27,7 @@ import {
   MenuSeparator as MenuDivider,
   MenuTrigger,
 } from "../ui/menu";
+import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { useComposerDraftStore, DraftId } from "../../composerDraftStore";
 import { getProviderModelCapabilities } from "../../providerModels";
 import { cn } from "~/lib/utils";
@@ -214,6 +215,7 @@ export interface TraitsMenuContentProps {
   onPromptChange: (prompt: string) => void;
   modelOptions?: ProviderOptions | null | undefined;
   allowPromptInjectedEffort?: boolean;
+  useReasoningSelector?: boolean;
   triggerVariant?: VariantProps<typeof buttonVariants>["variant"];
   triggerClassName?: string;
 }
@@ -432,6 +434,148 @@ export function buildTraitsTriggerDisplay(input: {
   return { label: labels.join(" · "), showFastModeIcon: fastModeEnabled };
 }
 
+/**
+ * The draggable control is for the common day-to-day effort range. Keep
+ * provider-specific ultra modes available through Advanced without adding a
+ * long-tail endpoint to the slider.
+ */
+export function getReasoningSliderOptions<T extends { id: string; label: string }>(
+  options: ReadonlyArray<T>,
+): ReadonlyArray<T> {
+  return options.filter(
+    (option) =>
+      !option.id.toLowerCase().includes("ultra") && !option.label.toLowerCase().includes("ultra"),
+  );
+}
+
+function ReasoningSlider(props: {
+  options: ReadonlyArray<{ id: string; label: string }>;
+  selectedValue: string;
+  disabled?: boolean;
+  onValueChange: (value: string) => void;
+}) {
+  const pointerIdRef = useRef<number | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const selectedIndex = Math.max(
+    0,
+    props.options.findIndex((option) => option.id === props.selectedValue),
+  );
+  const lastIndex = Math.max(0, props.options.length - 1);
+  const percentage = lastIndex === 0 ? 0 : (selectedIndex / lastIndex) * 100;
+  const selectedOption = props.options[selectedIndex];
+
+  const setValueFromClientX = (clientX: number, element: HTMLElement) => {
+    if (props.disabled || props.options.length === 0) return;
+    const bounds = element.getBoundingClientRect();
+    const ratio = Math.min(1, Math.max(0, (clientX - bounds.left) / bounds.width));
+    const index = Math.round(ratio * lastIndex);
+    const option = props.options[index];
+    if (option) props.onValueChange(option.id);
+  };
+
+  const moveBy = (amount: number) => {
+    const option = props.options[Math.min(lastIndex, Math.max(0, selectedIndex + amount))];
+    if (option) props.onValueChange(option.id);
+  };
+
+  return (
+    <div className="grid gap-2">
+      <div className="relative h-9">
+        <div
+          role="slider"
+          tabIndex={props.disabled ? -1 : 0}
+          aria-label="Reasoning level"
+          aria-valuemin={0}
+          aria-valuemax={lastIndex}
+          aria-valuenow={selectedIndex}
+          aria-valuetext={selectedOption?.label ?? ""}
+          aria-disabled={props.disabled}
+          className="reasoning-selector-slider group absolute inset-x-4 inset-y-0 flex touch-none items-center outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-popover"
+          onKeyDown={(event) => {
+            if (props.disabled) return;
+            if (event.key === "ArrowLeft" || event.key === "ArrowDown") {
+              event.preventDefault();
+              moveBy(-1);
+            } else if (event.key === "ArrowRight" || event.key === "ArrowUp") {
+              event.preventDefault();
+              moveBy(1);
+            } else if (event.key === "Home") {
+              event.preventDefault();
+              const firstOption = props.options[0];
+              if (firstOption) props.onValueChange(firstOption.id);
+            } else if (event.key === "End") {
+              event.preventDefault();
+              const lastOption = props.options[lastIndex];
+              if (lastOption) props.onValueChange(lastOption.id);
+            }
+          }}
+          onPointerDown={(event) => {
+            if (props.disabled) return;
+            pointerIdRef.current = event.pointerId;
+            event.currentTarget.setPointerCapture(event.pointerId);
+            setIsDragging(true);
+            setValueFromClientX(event.clientX, event.currentTarget);
+          }}
+          onPointerMove={(event) => {
+            if (pointerIdRef.current !== event.pointerId) return;
+            setValueFromClientX(event.clientX, event.currentTarget);
+          }}
+          onPointerUp={(event) => {
+            if (pointerIdRef.current !== event.pointerId) return;
+            pointerIdRef.current = null;
+            setIsDragging(false);
+            event.currentTarget.releasePointerCapture(event.pointerId);
+          }}
+          onPointerCancel={() => {
+            pointerIdRef.current = null;
+            setIsDragging(false);
+          }}
+        >
+          <div className="absolute inset-x-0 h-5 rounded-full bg-muted/80 shadow-[inset_0_1px_2px_rgb(0_0_0/12%)]">
+            <div
+              className={cn(
+                "reasoning-selector-fill absolute inset-y-0 left-0 rounded-full",
+                isDragging &&
+                  "will-change-[width] transition-[width] duration-100 ease-out motion-reduce:transition-none",
+                !isDragging &&
+                  "transition-[width] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
+              )}
+              style={{ width: `${percentage}%` }}
+            />
+            <div className="absolute inset-0 flex items-center justify-between px-2.5">
+              {props.options.map((option, index) => (
+                <span
+                  key={option.id}
+                  className={cn(
+                    "size-1.5 rounded-full transition-[background-color,scale] duration-150",
+                    index <= selectedIndex ? "bg-primary-foreground/85" : "bg-foreground/25",
+                    index === selectedIndex && "scale-125",
+                  )}
+                />
+              ))}
+            </div>
+          </div>
+          <span
+            className={cn(
+              "absolute top-1/2 size-8 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/70 bg-white shadow-md shadow-black/25 dark:border-white/40 dark:bg-zinc-100",
+              !isDragging &&
+                "transition-[left,scale,box-shadow] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:shadow-lg motion-reduce:transition-none",
+              isDragging &&
+                "will-change-[left] scale-110 shadow-lg transition-[left] duration-100 ease-out motion-reduce:transition-none",
+            )}
+            style={{ left: `${percentage}%` }}
+            aria-hidden="true"
+          />
+        </div>
+      </div>
+      <div className="flex justify-between text-xs font-medium tracking-[-0.01em] text-muted-foreground/75">
+        <span>{props.options[0]?.label ?? "Light"}</span>
+        <span>{props.options[lastIndex]?.label ?? "Heavy"}</span>
+      </div>
+    </div>
+  );
+}
+
 export const TraitsPicker = memo(function TraitsPicker({
   provider,
   instanceId,
@@ -441,12 +585,13 @@ export const TraitsPicker = memo(function TraitsPicker({
   onPromptChange,
   modelOptions,
   allowPromptInjectedEffort = true,
+  useReasoningSelector = false,
   triggerVariant,
   triggerClassName,
   ...persistence
 }: TraitsMenuContentProps & TraitsPersistence) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const { descriptors, primarySelectDescriptor, ultrathinkPromptControlled } =
+  const { descriptors, primarySelectDescriptor, ultrathinkPromptControlled, ultrathinkInBodyText } =
     getTraitsSectionVisibility({
       provider,
       models,
@@ -455,6 +600,23 @@ export const TraitsPicker = memo(function TraitsPicker({
       modelOptions,
       allowPromptInjectedEffort,
     });
+  const setProviderModelOptions = useComposerDraftStore((store) => store.setProviderModelOptions);
+  const updateModelOptions = useCallback(
+    (nextOptions: ProviderOptions | undefined) => {
+      if ("onModelOptionsChange" in persistence) {
+        persistence.onModelOptionsChange(nextOptions);
+        return;
+      }
+      const threadTarget = persistence.threadRef ?? persistence.draftId;
+      if (!threadTarget) return;
+      setProviderModelOptions(threadTarget, provider, nextOptions, {
+        ...(instanceId ? { instanceId } : {}),
+        model,
+        persistSticky: true,
+      });
+    },
+    [instanceId, model, persistence, provider, setProviderModelOptions],
+  );
   if (
     !shouldRenderTraitsControls({
       provider,
@@ -486,6 +648,104 @@ export const TraitsPicker = memo(function TraitsPicker({
       <span className="sr-only">Fast mode on</span>
     </>
   ) : null;
+
+  const reasoningLabel = ultrathinkPromptControlled
+    ? "Ultrathink"
+    : (getProviderOptionCurrentLabel(primarySelectDescriptor) ?? "Reasoning");
+  const reasoningOptions = primarySelectDescriptor?.options ?? [];
+  const reasoningSliderOptions = getReasoningSliderOptions(reasoningOptions);
+  const selectedReasoningValue = getDescriptorStringValue(primarySelectDescriptor) ?? "";
+  const selectedSliderValue = reasoningSliderOptions.some(
+    (option) => option.id === selectedReasoningValue,
+  )
+    ? selectedReasoningValue
+    : (reasoningSliderOptions[reasoningSliderOptions.length - 1]?.id ?? "");
+  const updateReasoning = (value: string) => {
+    if (!primarySelectDescriptor || !value) return;
+    if (primarySelectDescriptor.promptInjectedValues?.includes(value)) {
+      const nextPrompt =
+        prompt.trim().length === 0
+          ? ULTRATHINK_PROMPT_PREFIX
+          : applyClaudePromptEffortPrefix(prompt, "ultrathink");
+      onPromptChange(nextPrompt);
+      return;
+    }
+    if (ultrathinkInBodyText) return;
+    if (ultrathinkPromptControlled) onPromptChange(prompt.replace(/^Ultrathink:\s*/i, ""));
+    updateModelOptions(
+      buildProviderOptionSelectionsFromDescriptors(
+        replaceDescriptorCurrentValue(descriptors, primarySelectDescriptor.id, value),
+      ),
+    );
+  };
+
+  if (useReasoningSelector && primarySelectDescriptor && reasoningSliderOptions.length > 0) {
+    return (
+      <Popover open={isMenuOpen} onOpenChange={setIsMenuOpen}>
+        <PopoverTrigger
+          render={
+            <ComposerControl
+              variant={triggerVariant ?? "ghost"}
+              className={cn("shrink-0 whitespace-nowrap", triggerClassName)}
+              aria-label={`Reasoning: ${reasoningLabel}`}
+            />
+          }
+        >
+          {fastModeIcon}
+          <span>{reasoningLabel}</span>
+          <ComposerControlChevron />
+        </PopoverTrigger>
+        <PopoverPopup
+          side="top"
+          align="start"
+          sideOffset={8}
+          className="w-56 border-0 bg-transparent p-0 shadow-none before:hidden [-webkit-backdrop-filter:none]! [--viewport-inline-padding:0] [backdrop-filter:none]!"
+          viewportClassName="rounded-xl !overflow-hidden p-0"
+        >
+          <div className="reasoning-selector-popup dropdown-glass model-picker-surface grid gap-3 rounded-xl p-3 font-sans text-popover-foreground shadow-xl shadow-black/20">
+            <div className="flex items-center justify-between text-sm leading-none tracking-[-0.01em]">
+              <span className="font-medium text-muted-foreground">Reasoning</span>
+              <span className="font-medium text-foreground">{reasoningLabel}</span>
+            </div>
+            <ReasoningSlider
+              options={reasoningSliderOptions}
+              selectedValue={selectedSliderValue}
+              disabled={ultrathinkInBodyText}
+              onValueChange={updateReasoning}
+            />
+            <Menu>
+              <MenuTrigger
+                render={
+                  <button
+                    type="button"
+                    className="-mx-1 flex items-center gap-1 rounded-md px-1 py-1 text-left text-xs font-medium tracking-[-0.01em] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                    aria-label="Advanced reasoning options"
+                  />
+                }
+              >
+                Advanced
+                <ChevronRightIcon className="size-3.5" aria-hidden="true" />
+                <ZapIcon className="ms-auto size-3.5 text-muted-foreground" aria-hidden="true" />
+              </MenuTrigger>
+              <MenuPopup side="right" align="start" sideOffset={6}>
+                <TraitsMenuContent
+                  provider={provider}
+                  {...(instanceId ? { instanceId } : {})}
+                  models={models}
+                  model={model}
+                  prompt={prompt}
+                  onPromptChange={onPromptChange}
+                  modelOptions={modelOptions}
+                  allowPromptInjectedEffort={allowPromptInjectedEffort}
+                  {...persistence}
+                />
+              </MenuPopup>
+            </Menu>
+          </div>
+        </PopoverPopup>
+      </Popover>
+    );
+  }
 
   const isCodexStyle = provider === "codex";
 

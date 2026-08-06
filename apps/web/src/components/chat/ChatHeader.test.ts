@@ -1,7 +1,11 @@
 import { EnvironmentId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { shouldShowOpenInPicker } from "./ChatHeader";
+import {
+  formatHeaderUsagePercentage,
+  getHeaderUsageDisplay,
+  shouldShowOpenInPicker,
+} from "./ChatHeader";
 
 describe("shouldShowOpenInPicker", () => {
   const primaryEnvironmentId = EnvironmentId.make("environment-primary");
@@ -44,5 +48,35 @@ describe("shouldShowOpenInPicker", () => {
         primaryEnvironmentId,
       }),
     ).toBe(false);
+  });
+});
+
+describe("formatHeaderUsagePercentage", () => {
+  it("keeps small non-zero usage visible", () => {
+    expect(formatHeaderUsagePercentage(0)).toBe("0%");
+    expect(formatHeaderUsagePercentage(0.4)).toBe("<1%");
+  });
+
+  it("rounds ordinary percentages for the compact header", () => {
+    expect(formatHeaderUsagePercentage(31.6)).toBe("32%");
+    expect(formatHeaderUsagePercentage(100)).toBe("100%");
+  });
+});
+
+describe("getHeaderUsageDisplay", () => {
+  it("shows remaining usage by default-facing mode", () => {
+    expect(getHeaderUsageDisplay(73, true)).toEqual({
+      percentage: 27,
+      label: "27%",
+      qualifier: "left",
+    });
+  });
+
+  it("can show consumed usage instead", () => {
+    expect(getHeaderUsageDisplay(73, false)).toEqual({
+      percentage: 73,
+      label: "73%",
+      qualifier: "used",
+    });
   });
 });

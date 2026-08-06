@@ -1255,6 +1255,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     modelOptions: composerModelOptions?.[selectedInstanceId],
     prompt,
     onPromptChange: setPromptFromTraits,
+    useReasoningSelector: settings.experimentalReasoningSelector,
   });
   const pendingPrimaryAction = useMemo(
     () =>

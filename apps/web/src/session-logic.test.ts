@@ -1591,6 +1591,24 @@ describe("deriveWorkLogEntries context window handling", () => {
   });
 });
 
+describe("deriveWorkLogEntries account usage handling", () => {
+  it("keeps account usage updates out of the visible work log", () => {
+    const entries = deriveWorkLogEntries([
+      {
+        id: EventId.make("activity-rate-limit"),
+        tone: "info",
+        kind: "account-rate-limits.updated",
+        summary: "Usage limit updated",
+        payload: { rateLimits: { primary: { usedPercent: 37 } } },
+        turnId: TurnId.make("turn-1"),
+        createdAt: "2026-07-23T00:00:00.000Z",
+      },
+    ]);
+
+    expect(entries).toEqual([]);
+  });
+});
+
 describe("isLatestTurnSettled", () => {
   const latestTurn = {
     turnId: TurnId.make("turn-1"),

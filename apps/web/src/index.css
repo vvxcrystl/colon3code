@@ -75,6 +75,36 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   }
 }
 
+@keyframes reasoning-selector-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.reasoning-selector-popup {
+  --reasoning-selector-accent: var(--primary);
+  animation: reasoning-selector-in 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.reasoning-selector-fill {
+  background-color: var(--reasoning-selector-accent);
+}
+
+.reasoning-selector-slider:focus-visible {
+  --tw-ring-color: var(--reasoning-selector-accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reasoning-selector-popup {
+    animation: none;
+  }
+}
+
 :root {
   --app-scrollbar-width: 6px;
   --app-scrollbar-thumb: rgb(217 217 217);
@@ -956,7 +986,15 @@ html.crystl {
   --card-foreground: var(--color-neutral-200);
   --popover: #201d27;
   --popover-foreground: var(--color-neutral-200);
-  --primary: oklch(0.65 0.22 292);
+  /* A Crystl accent pass: components that use Tailwind's blue utility scale
+     (plan controls, active links, and info affordances) should share the
+     theme's violet family rather than leak the default blue palette. */
+  --color-blue-300: #cfabf4;
+  --color-blue-400: #b77aee;
+  --color-blue-500: #8e37e5;
+  --color-blue-600: #7024ba;
+  --color-blue-700: #581b92;
+  --primary: #8e37e5;
   --primary-foreground: var(--color-white);
   --secondary: color-mix(in srgb, #8b5cf6 10%, transparent);
   --secondary-foreground: var(--color-neutral-200);
@@ -967,7 +1005,7 @@ html.crystl {
   --destructive: color-mix(in srgb, var(--color-red-500) 90%, var(--color-white));
   --border: rgb(216 180 254 / 14%);
   --input: rgb(216 180 254 / 18%);
-  --ring: oklch(0.65 0.22 292);
+  --ring: #8e37e5;
   --destructive-foreground: var(--color-red-400);
   --info: var(--color-blue-500);
   --info-foreground: var(--color-blue-400);
@@ -975,6 +1013,10 @@ html.crystl {
   --success-foreground: var(--color-emerald-400);
   --warning: var(--color-amber-500);
   --warning-foreground: var(--color-amber-400);
+}
+
+html.crystl .reasoning-selector-popup {
+  --reasoning-selector-accent: #8e37e5;
 }
 
 html.crystl [data-slot="sidebar-inset"] {

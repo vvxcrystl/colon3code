@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import { ProviderDriverKind, type ProviderOptionDescriptor } from "@t3tools/contracts";
-import { buildTraitsTriggerDisplay } from "./TraitsPicker";
+import { buildTraitsTriggerDisplay, getReasoningSliderOptions } from "./TraitsPicker";
 
 function selectDescriptor(
   id: string,
@@ -128,5 +128,21 @@ describe("buildTraitsTriggerDisplay", () => {
         ultrathinkPromptControlled: true,
       }),
     ).toEqual({ label: "Ultrathink", showFastModeIcon: true });
+  });
+});
+
+describe("getReasoningSliderOptions", () => {
+  it("keeps ultra-family modes in Advanced rather than the draggable scale", () => {
+    expect(
+      getReasoningSliderOptions([
+        { id: "low", label: "Low" },
+        { id: "high", label: "High" },
+        { id: "ultra", label: "Ultra" },
+        { id: "ultrathink", label: "Ultrathink" },
+      ]),
+    ).toEqual([
+      { id: "low", label: "Low" },
+      { id: "high", label: "High" },
+    ]);
   });
 });

@@ -177,6 +177,11 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/beta",
   },
   {
+    id: "reasoning-selector",
+    title: "Reasoning selector",
+    to: "/settings/beta",
+  },
+  {
     id: "auto-settle-inactive-threads",
     title: "Auto-settle inactive threads",
     to: "/settings/beta",

@@ -46,6 +46,7 @@ type TraitsRenderInput = {
   modelOptions: ReadonlyArray<ProviderOptionSelection> | undefined;
   prompt: string;
   onPromptChange: (prompt: string) => void;
+  useReasoningSelector?: boolean;
 };
 
 export function getComposerPromptInjectionState(prompt: string): ComposerPromptInjectionState {
@@ -111,6 +112,9 @@ function renderTraitsControl(
       {...(draftId ? { draftId } : {})}
       model={model}
       modelOptions={modelOptions}
+      {...(input.useReasoningSelector !== undefined
+        ? { useReasoningSelector: input.useReasoningSelector }
+        : {})}
       prompt={prompt}
       onPromptChange={onPromptChange}
     />

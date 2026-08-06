@@ -630,6 +630,10 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.autoOpenPlanSidebar !== DEFAULT_UNIFIED_SETTINGS.autoOpenPlanSidebar
         ? ["Auto-open task panel"]
         : []),
+      ...(settings.codexUsageLimitShowsRemaining !==
+      DEFAULT_UNIFIED_SETTINGS.codexUsageLimitShowsRemaining
+        ? ["Codex usage meter"]
+        : []),
       ...(settings.enableAssistantStreaming !== DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming
         ? ["Assistant output"]
         : []),
@@ -660,6 +664,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       isTextGenerationModelDirty,
       isBackgroundActivityDirty,
       settings.autoOpenPlanSidebar,
+      settings.codexUsageLimitShowsRemaining,
       settings.confirmThreadArchive,
       settings.confirmThreadDelete,
       settings.addProjectBaseDirectory,
@@ -706,6 +711,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       sidebarThreadPreviewCount: DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount,
       sidebarProjectGroupingMode: DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode,
       autoOpenPlanSidebar: DEFAULT_UNIFIED_SETTINGS.autoOpenPlanSidebar,
+      codexUsageLimitShowsRemaining: DEFAULT_UNIFIED_SETTINGS.codexUsageLimitShowsRemaining,
       enableAssistantStreaming: DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming,
       enableProviderUpdateChecks: DEFAULT_UNIFIED_SETTINGS.enableProviderUpdateChecks,
       backgroundActivity: DEFAULT_UNIFIED_SETTINGS.backgroundActivity,
@@ -1771,6 +1777,34 @@ export function GeneralSettingsPanel() {
         />
 
         <SettingsRow
+          title="Codex usage meter"
+          description="Show how much of the Codex usage limit remains instead of how much has been used."
+          resetAction={
+            settings.codexUsageLimitShowsRemaining !==
+            DEFAULT_UNIFIED_SETTINGS.codexUsageLimitShowsRemaining ? (
+              <SettingResetButton
+                label="Codex usage meter"
+                onClick={() =>
+                  updateSettings({
+                    codexUsageLimitShowsRemaining:
+                      DEFAULT_UNIFIED_SETTINGS.codexUsageLimitShowsRemaining,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.codexUsageLimitShowsRemaining}
+              onCheckedChange={(checked) =>
+                updateSettings({ codexUsageLimitShowsRemaining: Boolean(checked) })
+              }
+              aria-label="Show remaining Codex usage"
+            />
+          }
+        />
+
+        <SettingsRow
           {...searchableSetting("assistant-output")}
           description="Show token-by-token output while a response is in progress."
           resetAction={
@@ -2142,6 +2176,7 @@ export function GeneralSettingsPanel() {
                 allowPromptInjectedEffort={false}
                 triggerVariant="outline"
                 triggerClassName="min-w-0 max-w-none shrink-0 text-foreground/90 hover:text-foreground"
+                useReasoningSelector={settings.experimentalReasoningSelector}
                 onModelOptionsChange={(nextOptions) => {
                   updateSettings({
                     textGenerationModelSelection: resolveAppModelSelectionState(

@@ -3001,6 +3001,44 @@ describe("ProviderRuntimeIngestion", () => {
     });
   });
 
+  it("projects Codex account rate limits into thread activities", async () => {
+    const harness = await createHarness();
+    const now = "2026-01-01T00:00:00.000Z";
+
+    harness.emit({
+      type: "account.rate-limits.updated",
+      eventId: asEventId("evt-account-rate-limits-updated"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      payload: {
+        rateLimits: {
+          rateLimits: {
+            primary: { usedPercent: 37, windowDurationMins: 300 },
+          },
+        },
+      },
+    });
+
+    const thread = await waitForThread(harness.readModel, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) => activity.kind === "account-rate-limits.updated",
+      ),
+    );
+
+    expect(
+      thread.activities.find(
+        (activity: ProviderRuntimeTestActivity) => activity.kind === "account-rate-limits.updated",
+      )?.payload,
+    ).toMatchObject({
+      rateLimits: {
+        rateLimits: {
+          primary: { usedPercent: 37 },
+        },
+      },
+    });
+  });
+
   it("projects Claude usage snapshots with context window into normalized thread activities", async () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";

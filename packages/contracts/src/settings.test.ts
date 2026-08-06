@@ -33,6 +33,29 @@ describe("ClientSettings word wrap", () => {
   });
 });
 
+describe("ClientSettings Codex usage meter", () => {
+  it("defaults to showing remaining usage", () => {
+    expect(decodeClientSettings({}).codexUsageLimitShowsRemaining).toBe(true);
+  });
+
+  it("accepts switching the meter to used usage", () => {
+    expect(
+      decodeClientSettingsPatch({ codexUsageLimitShowsRemaining: false })
+        .codexUsageLimitShowsRemaining,
+    ).toBe(false);
+  });
+});
+
+describe("ClientSettings reasoning selector", () => {
+  it("defaults the experimental selector off and accepts the beta toggle", () => {
+    expect(decodeClientSettings({}).experimentalReasoningSelector).toBe(false);
+    expect(
+      decodeClientSettingsPatch({ experimentalReasoningSelector: true })
+        .experimentalReasoningSelector,
+    ).toBe(true);
+  });
+});
+
 describe("ClientSettings glass opacity", () => {
   it("defaults to a readable translucent surface", () => {
     expect(decodeClientSettings({}).glassOpacity).toBe(80);

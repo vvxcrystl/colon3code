@@ -20,6 +20,60 @@ import { useT3ProjectFileScripts } from "~/hooks/useT3ProjectFileScripts";
 import { ProjectFavicon } from "../ProjectFavicon";
 import { cn } from "~/lib/utils";
 
+export function formatHeaderUsagePercentage(value: number): string {
+  if (value > 0 && value < 1) {
+    return "<1%";
+  }
+  return `${Math.round(value)}%`;
+}
+
+export function getHeaderUsageDisplay(usedPercent: number, showRemaining: boolean) {
+  const normalizedUsed = Math.max(0, Math.min(100, usedPercent));
+  const percentage = showRemaining ? 100 - normalizedUsed : normalizedUsed;
+  return {
+    percentage,
+    label: formatHeaderUsagePercentage(percentage),
+    qualifier: showRemaining ? "left" : "used",
+  } as const;
+}
+
+function CodexUsageBar({
+  usedPercent,
+  showRemaining,
+}: {
+  usedPercent: number;
+  showRemaining: boolean;
+}) {
+  const { percentage, label, qualifier } = getHeaderUsageDisplay(usedPercent, showRemaining);
+  const overloaded = usedPercent > 90;
+
+  return (
+    <div
+      className="hidden shrink-0 items-center gap-2 sm:flex"
+      aria-label={`Codex usage limit: ${label} ${qualifier}`}
+      title={`Codex usage limit: ${label} ${qualifier}`}
+    >
+      <div
+        className="h-1.5 w-16 overflow-hidden rounded-full bg-muted"
+        role="progressbar"
+        aria-label="Codex usage limit"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.round(percentage)}
+      >
+        <div
+          className={cn(
+            "h-full rounded-full transition-[width,background-color] duration-500 ease-out motion-reduce:transition-none",
+            overloaded ? "bg-red-500" : "bg-muted-foreground/70",
+          )}
+          style={{ width: `${percentage}%` }}
+        />
+      </div>
+      <span className="w-8 text-right text-[11px] tabular-nums text-muted-foreground">{label}</span>
+    </div>
+  );
+}
+
 interface ChatHeaderProps {
   activeThreadEnvironmentId: EnvironmentId;
   activeThreadId: ThreadId;
@@ -33,6 +87,8 @@ interface ChatHeaderProps {
   keybindings: ResolvedKeybindingsConfig;
   availableEditors: ReadonlyArray<EditorId>;
   rightPanelOpen: boolean;
+  codexUsageLimitPercent: number | null;
+  codexUsageLimitShowsRemaining: boolean;
   gitCwd: string | null;
   onNewThreadInProject: () => void;
   onRunProjectScript: (script: ProjectScript) => void;
@@ -69,6 +125,8 @@ export const ChatHeader = memo(function ChatHeader({
   keybindings,
   availableEditors,
   rightPanelOpen,
+  codexUsageLimitPercent,
+  codexUsageLimitShowsRemaining,
   gitCwd,
   onNewThreadInProject,
   onRunProjectScript,
@@ -140,6 +198,12 @@ export const ChatHeader = memo(function ChatHeader({
           rightPanelOpen ? "pr-0" : "pr-16",
         )}
       >
+        {codexUsageLimitPercent !== null ? (
+          <CodexUsageBar
+            usedPercent={codexUsageLimitPercent}
+            showRemaining={codexUsageLimitShowsRemaining}
+          />
+        ) : null}
         {activeProjectScripts && (
           <ProjectScriptsControl
             scripts={activeProjectScripts}
