@@ -1475,6 +1475,12 @@ html[data-theme-id="t3-chat"]:not(.dark) .chat-markdown :not(pre) > code {
   color: var(--message-foreground);
 }
 
+/* The changed-files receipt is intentionally a quiet lift over Crystl's
+   canvas. Keep it a touch darker than the generic dark-mode input tint. */
+html[data-theme-id="crystl"] [data-changed-files-state] {
+  background-color: color-mix(in srgb, var(--input) 28%, var(--background));
+}
+
 html[data-theme-id] .chat-markdown .chat-markdown-chrome-action:hover,
 html[data-theme-id] .chat-markdown .chat-markdown-chrome-action[aria-pressed="true"] {
   color: var(--code-foreground);

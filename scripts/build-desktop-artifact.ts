@@ -137,6 +137,7 @@ interface BuildCliInput {
   readonly target: Option.Option<string>;
   readonly arch: Option.Option<typeof BuildArch.Type>;
   readonly buildVersion: Option.Option<string>;
+  readonly nightly: Option.Option<boolean>;
   readonly outputDir: Option.Option<string>;
   readonly skipBuild: Option.Option<boolean>;
   readonly keepStage: Option.Option<boolean>;
@@ -1028,6 +1029,7 @@ const BuildEnvConfig = Config.all({
   target: Config.string("T3CODE_DESKTOP_TARGET").pipe(Config.option),
   arch: Config.schema(BuildArch, "T3CODE_DESKTOP_ARCH").pipe(Config.option),
   version: Config.string("T3CODE_DESKTOP_VERSION").pipe(Config.option),
+  nightly: Config.boolean("T3CODE_DESKTOP_NIGHTLY").pipe(Config.withDefault(false)),
   outputDir: Config.string("T3CODE_DESKTOP_OUTPUT_DIR").pipe(Config.option),
   skipBuild: Config.boolean("T3CODE_DESKTOP_SKIP_BUILD").pipe(Config.withDefault(false)),
   keepStage: Config.boolean("T3CODE_DESKTOP_KEEP_STAGE").pipe(Config.withDefault(false)),
@@ -1064,6 +1066,18 @@ const resolveBooleanFlag = (flag: Option.Option<boolean>, envValue: boolean) =>
   Option.getOrElse(flag, () => envValue);
 const mergeOptions = <A>(a: Option.Option<A>, b: Option.Option<A>, defaultValue: A) =>
   Option.getOrElse(a, () => Option.getOrElse(b, () => defaultValue));
+
+const NIGHTLY_VERSION_PATTERN = /-nightly\.\d{8}\.\d+$/;
+
+export function resolveNightlyBuildVersion(baseVersion: string, now = new Date()): string {
+  const normalizedVersion = baseVersion.trim();
+  if (NIGHTLY_VERSION_PATTERN.test(normalizedVersion)) return normalizedVersion;
+
+  const date = [now.getUTCFullYear(), now.getUTCMonth() + 1, now.getUTCDate()]
+    .map((part) => String(part).padStart(2, "0"))
+    .join("");
+  return `${normalizedVersion}-nightly.${date}.${now.getTime()}`;
+}
 
 export const resolveMockUpdateServerPort = Effect.fn("resolveMockUpdateServerPort")(function* (
   mockUpdateServerPort: string | undefined,
@@ -1105,7 +1119,11 @@ export const resolveBuildOptions = Effect.fn("resolveBuildOptions")(function* (
       supportedArchitectures: [...supportedArchitectures],
     });
   }
-  const version = mergeOptions(input.buildVersion, env.version, undefined);
+  const configuredVersion = mergeOptions(input.buildVersion, env.version, undefined);
+  const nightly = resolveBooleanFlag(input.nightly, env.nightly);
+  const version = nightly
+    ? resolveNightlyBuildVersion(configuredVersion ?? serverPackageJson.version)
+    : configuredVersion;
   const releaseDir = resolveBooleanFlag(input.mockUpdates, env.mockUpdates)
     ? "release-mock"
     : "release";
@@ -2100,6 +2118,12 @@ const buildDesktopArtifactCli = Command.make("build-desktop-artifact", {
   ),
   buildVersion: Flag.string("build-version").pipe(
     Flag.withDescription("Artifact version metadata (env: T3CODE_DESKTOP_VERSION)."),
+    Flag.optional,
+  ),
+  nightly: Flag.boolean("nightly").pipe(
+    Flag.withDescription(
+      "Build with nightly branding and updater metadata (env: T3CODE_DESKTOP_NIGHTLY).",
+    ),
     Flag.optional,
   ),
   outputDir: Flag.string("output-dir").pipe(

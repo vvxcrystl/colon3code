@@ -30,6 +30,7 @@ import {
   resolveDesktopRuntimeDependencies,
   resolveFffNativeDependencies,
   resolveBuildOptions,
+  resolveNightlyBuildVersion,
   resolveDesktopBuildIconAssets,
   resolveDesktopProductName,
   resolveDesktopUpdateChannel,
@@ -88,6 +89,18 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
   it("resolves the dedicated nightly updater channel from nightly versions", () => {
     assert.equal(resolveDesktopUpdateChannel("0.0.17-nightly.20260413.42"), "nightly");
     assert.equal(resolveDesktopUpdateChannel("0.0.17"), "latest");
+  });
+
+  it("derives a nightly version for local builds", () => {
+    const now = new Date("2026-08-11T12:34:56.000Z");
+    assert.equal(
+      resolveNightlyBuildVersion("0.0.33", now),
+      "0.0.33-nightly.20260811.1786451696000",
+    );
+    assert.equal(
+      resolveNightlyBuildVersion("0.0.33-nightly.20260811.7", now),
+      "0.0.33-nightly.20260811.7",
+    );
   });
 
   it("switches desktop packaging product names to nightly for nightly builds", () => {
@@ -671,6 +684,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         target: Option.none(),
         arch: Option.none(),
         buildVersion: Option.none(),
+        nightly: Option.none(),
         outputDir: Option.none(),
         skipBuild: Option.none(),
         keepStage: Option.none(),
@@ -711,6 +725,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
             target: Option.none(),
             arch: Option.some("universal"),
             buildVersion: Option.none(),
+            nightly: Option.none(),
             outputDir: Option.none(),
             skipBuild: Option.none(),
             keepStage: Option.none(),
@@ -735,6 +750,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         target: Option.none(),
         arch: Option.some("arm64"),
         buildVersion: Option.none(),
+        nightly: Option.none(),
         outputDir: Option.some("release-test"),
         skipBuild: Option.some(false),
         keepStage: Option.some(false),
