@@ -17,6 +17,7 @@ import {
   type ThemeDefinition,
   type ThemeHalves,
   T3_CHAT_THEME,
+  CRYSTL_THEME,
   EMBER_THEME,
   GROVE_THEME,
   IRIS_THEME,
@@ -48,6 +49,7 @@ import { ThemeWireframe } from "./ThemeWireframe";
 
 const MAINTAINER_THEMES: ReadonlyArray<ThemeDefinition> = [
   T3_CHAT_THEME,
+  CRYSTL_THEME,
   GROVE_THEME,
   OCEAN_THEME,
   EMBER_THEME,

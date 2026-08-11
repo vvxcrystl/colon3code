@@ -10,6 +10,8 @@ export const EMBER_THEME_ID = "ember" as const;
 export const EMBER_THEME_LABEL = "Ember";
 export const IRIS_THEME_ID = "iris" as const;
 export const IRIS_THEME_LABEL = "Iris";
+export const CRYSTL_THEME_ID = "crystl" as const;
+export const CRYSTL_THEME_LABEL = "Crystl";
 export const THEME_FILE_VERSION = 1 as const;
 export const CUSTOM_THEMES_STORAGE_KEY = "t3code:themes:v1";
 export const THEME_FOLLOW_SYSTEM_STORAGE_KEY = "t3code:theme-follow-system";
@@ -122,6 +124,7 @@ const RESERVED_THEME_IDS = new Set([
   OCEAN_THEME_ID,
   EMBER_THEME_ID,
   IRIS_THEME_ID,
+  CRYSTL_THEME_ID,
   LEGACY_T3_CHAT_DARK_THEME_ID,
   "t3-grove",
   "t3-ocean",
@@ -1391,12 +1394,68 @@ export const IRIS_THEME: ThemeDefinition = {
   },
 };
 
+/** The original Crystl fork palette, kept as a dark-only built-in theme. */
+export const CRYSTL_THEME: ThemeDefinition = {
+  id: CRYSTL_THEME_ID,
+  label: CRYSTL_THEME_LABEL,
+  appearance: "dark",
+  colors: {
+    ...createManagedThemeColors("dark", "#17151d", "#8e37e5", { exactSeeds: true }),
+    canvas: "#17151d",
+    chrome: "#17151d",
+    toolbar: "#17151d",
+    toolbarForeground: "#eee7f3",
+    toolbarBorder: "#3b3046",
+    toolbarControl: "#201d27",
+    toolbarControlForeground: "#eee7f3",
+    toolbarControlHover: "#30293b",
+    surface: "#1e1c26",
+    surfaceRaised: "#201d27",
+    surfaceOverlay: "#201d27",
+    text: "#e4e4e7",
+    textMuted: "#b8aebf",
+    border: "#4a3b58",
+    input: "#4d3d5b",
+    focus: "#8e37e5",
+    accent: "#8e37e5",
+    accentForeground: "#ffffff",
+    secondary: "#29233a",
+    secondaryForeground: "#e4e4e7",
+    muted: "#282332",
+    mutedForeground: "#b8aebf",
+    accentSurface: "#30293b",
+    accentSurfaceForeground: "#f5effa",
+    messageSurface: "#292333",
+    messageForeground: "#f5effa",
+    messageAction: "#8e37e5",
+    messageActionForeground: "#ffffff",
+    messageActionHover: "#7024ba",
+    codeBackground: "#17151d",
+    codeForeground: "#cfabf4",
+    sidebar: "#1e1b24",
+    sidebarForeground: "#eee7f3",
+    sidebarMutedForeground: "#b8aebf",
+    sidebarControlSurface: "#261f2d",
+    sidebarRowHover: "#30263a",
+    sidebarRowActive: "#3b3048",
+    sidebarRowSelected: "#30293b",
+    sidebarBorder: "#4a3b58",
+    terminalBackground: "#17151d",
+    terminalForeground: "#eee7f3",
+    terminalCursor: "#8e37e5",
+    terminalSelection: "#432b5d",
+    terminalScrollbar: "#4a3b58",
+    terminalScrollbarHover: "#6a5680",
+  },
+};
+
 const BUILT_IN_THEME_DEFINITIONS: ReadonlyArray<ThemeDefinition> = [
   T3_CHAT_THEME,
   GROVE_THEME,
   OCEAN_THEME,
   EMBER_THEME,
   IRIS_THEME,
+  CRYSTL_THEME,
 ];
 
 export function getThemeDefinition(theme: ThemePreference): ThemeDefinition | null {

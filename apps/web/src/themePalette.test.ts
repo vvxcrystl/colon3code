@@ -21,6 +21,7 @@ import {
   subscribeToThemePreview,
   subscribeToCustomThemes,
   T3_CHAT_THEME,
+  CRYSTL_THEME,
   EMBER_THEME,
   GROVE_THEME,
   IRIS_THEME,
@@ -503,6 +504,15 @@ describe("stored theme preferences", () => {
     expect(isKnownThemePreference("t3-chat-dark")).toBe(true);
   });
 
+  it("exposes Crystl as a dark-only built-in theme", () => {
+    expect(getThemeDefinition(CRYSTL_THEME.id)).toBe(CRYSTL_THEME);
+    expect(getThemeModes(CRYSTL_THEME)).toEqual(["dark"]);
+    expect(getThemePreferenceMode(CRYSTL_THEME.id)).toBe("dark");
+    expect(resolveThemeAppearance(CRYSTL_THEME.id, false, true)).toBe("dark");
+    expect(resolveDesktopTheme(CRYSTL_THEME.id, false)).toBe("dark");
+    expect(isKnownThemePreference(CRYSTL_THEME.id)).toBe(true);
+  });
+
   it("resolves legacy t3-prefixed ids onto the renamed themes", () => {
     for (const [legacy, theme] of [
       ["t3-grove", GROVE_THEME],
@@ -524,7 +534,14 @@ describe("stored theme preferences", () => {
   });
 
   it("recognizes only preferences the runtime can render", () => {
-    for (const preference of ["light", "dark", "system", T3_CHAT_THEME.id, GROVE_THEME.id]) {
+    for (const preference of [
+      "light",
+      "dark",
+      "system",
+      T3_CHAT_THEME.id,
+      GROVE_THEME.id,
+      CRYSTL_THEME.id,
+    ]) {
       expect(isKnownThemePreference(preference)).toBe(true);
     }
     expect(isKnownThemePreference(`${GROVE_THEME.id}:dark`)).toBe(false);

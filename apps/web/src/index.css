@@ -1184,7 +1184,8 @@ html.crystl [data-model-picker-sidebar="true"] {
 }
 
 html.crystl [data-sidebar-version="v1"],
-html.crystl [data-sidebar-version="v2"] {
+html.crystl [data-sidebar-version="v2"],
+html.crystl [data-app-sidebar] {
   --background: #19151c;
   --foreground: #eee7f3;
   --card: #1e1b24;
