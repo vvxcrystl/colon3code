@@ -56,6 +56,26 @@ function makeThread(
 }
 
 describe("buildThreadFeed", () => {
+  it("keeps account usage updates out of the mobile work log", () => {
+    const thread = makeThread({
+      id: ThreadId.make("thread-usage"),
+      projectId: ProjectId.make("project-1"),
+      title: "Usage updates",
+      activities: [
+        makeActivity({
+          id: EventId.make("activity-rate-limit"),
+          kind: "account-rate-limits.updated",
+          summary: "Usage limit updated",
+          createdAt: "2026-04-01T00:00:02.000Z",
+          turnId: TurnId.make("turn-1"),
+          payload: { rateLimits: { primary: { usedPercent: 37 } } },
+        }),
+      ],
+    });
+
+    expect(buildThreadFeed(thread)).toEqual([]);
+  });
+
   it("keeps historic work entries attributed to their turns", () => {
     const thread = makeThread({
       id: ThreadId.make("thread-1"),
