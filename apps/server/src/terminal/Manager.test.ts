@@ -24,6 +24,7 @@ import * as Ref from "effect/Ref";
 import * as Schedule from "effect/Schedule";
 import * as Scope from "effect/Scope";
 import * as TestClock from "effect/testing/TestClock";
+import { ChildProcessSpawner } from "effect/unstable/process";
 import { expect } from "vite-plus/test";
 
 import * as ProcessRunner from "../processRunner.ts";
@@ -274,6 +275,70 @@ const createManager = (
 
 const withHostPlatform = (platform: NodeJS.Platform) =>
   Layer.succeed(HostProcessPlatform, platform);
+
+// The previous split/join algorithm is the reference for retained text.
+function retainedHistory(text: string, maxLines: number): string {
+  const terminated = text.endsWith("\n");
+  const lines = text.split("\n");
+  if (terminated) lines.pop();
+  const retained = lines.slice(Math.max(0, lines.length - maxLines)).join("\n");
+  return terminated ? `${retained}\n` : retained;
+}
+
+it("preserves history across arbitrary chunks, Unicode, ANSI sequences, and clear", () => {
+  let randomSeed = 0x20260904;
+  const fragments = [
+    "",
+    "a",
+    "\n",
+    "\n\n",
+    "\r",
+    "\r\n",
+    "café",
+    "名",
+    "🚀",
+    "\u001b[31m",
+    "\u001b[0m",
+    "\u001b]8;;url\u0007",
+    "\ud83d",
+    "\ude80",
+  ];
+  const nextFragment = () => {
+    randomSeed = (Math.imul(randomSeed, 1_664_525) + 1_013_904_223) >>> 0;
+    return fragments[randomSeed % fragments.length]!;
+  };
+
+  for (const maxLines of [0, 1, 3, 5, 5_000]) {
+    let expected = retainedHistory("before\ninitial\n", maxLines);
+    const history = new TerminalManager.BoundedTerminalHistory(maxLines, expected);
+    expect(history.value()).toBe(expected);
+
+    for (let step = 0; step < 300; step += 1) {
+      if (step % 73 === 0) {
+        history.clear();
+        expected = "";
+        expect(history.value()).toBe(expected);
+      }
+      const chunk = nextFragment() + nextFragment();
+      history.append(chunk);
+      expected = retainedHistory(expected + chunk, maxLines);
+      expect(history.value()).toBe(expected);
+    }
+  }
+});
+
+it("preserves retained lines as older storage is compacted", () => {
+  for (const maxLines of [3, 5_000]) {
+    let expected = "";
+    const history = new TerminalManager.BoundedTerminalHistory(maxLines, expected);
+    for (let batch = 0; batch < 40; batch += 1) {
+      const chunk = Array.from({ length: 300 }, (_, line) => `${batch}:${line}\n`).join("");
+      history.append(chunk);
+      expected = retainedHistory(expected + chunk, maxLines);
+      expect(history.value()).toBe(expected);
+    }
+  }
+});
 
 it.layer(
   Layer.merge(NodeServices.layer, ProcessRunner.layer.pipe(Layer.provide(NodeServices.layer))),
@@ -953,6 +1018,125 @@ it.layer(
     }),
   );
 
+  it.effect("derives subprocess activity for every terminal from one shared process snapshot", () =>
+    Effect.gen(function* () {
+      const runCalls: Array<{ command: string; args: ReadonlyArray<string> }> = [];
+      // FakePtyAdapter assigns pids starting at 9000, so the two terminals
+      // opened below run as pids 9000 and 9001.
+      const psStdout = ["  100  9000 vim", "  101   100 git", "  200  9001 /usr/bin/python3"].join(
+        "\n",
+      );
+      const processRunner: ProcessRunner.ProcessRunner["Service"] = {
+        run: (input) =>
+          Effect.sync(() => {
+            runCalls.push({ command: input.command, args: input.args });
+            return {
+              stdout: psStdout,
+              stderr: "",
+              code: ChildProcessSpawner.ExitCode(0),
+              timedOut: false,
+              stdoutTruncated: false,
+              stderrTruncated: false,
+              stdoutInvalidUtf8: false,
+              stderrInvalidUtf8: false,
+            };
+          }),
+      };
+
+      const { manager, getEvents } = yield* createManager(5, {
+        subprocessPollIntervalMs: 20,
+      }).pipe(
+        Effect.provideService(ProcessRunner.ProcessRunner, processRunner),
+        Effect.provide(withHostPlatform("linux")),
+      );
+
+      yield* manager.open(openInput());
+      yield* manager.open(openInput({ threadId: "thread-2" }));
+
+      yield* waitFor(
+        Effect.map(
+          getEvents,
+          (events) =>
+            events.some(
+              (event) =>
+                event.type === "activity" &&
+                event.hasRunningSubprocess === true &&
+                event.label === "vim",
+            ) &&
+            events.some(
+              (event) =>
+                event.type === "activity" &&
+                event.hasRunningSubprocess === true &&
+                event.label === "python3",
+            ),
+        ),
+        "1200 millis",
+      );
+      yield* waitFor(
+        Effect.sync(() => runCalls.length >= 3),
+        "1200 millis",
+      );
+
+      // Every spawn is the shared table snapshot — no per-terminal `pgrep`
+      // or per-child `ps -p` invocations.
+      expect(runCalls.every((call) => call.args.join(" ") === "-eo pid=,ppid=,comm=")).toBe(true);
+    }),
+  );
+
+  it.effect("keeps last known subprocess state when the process snapshot fails", () =>
+    Effect.gen(function* () {
+      let failSnapshots = false;
+      let failedCalls = 0;
+      const processRunner: ProcessRunner.ProcessRunner["Service"] = {
+        run: () =>
+          Effect.sync(() => {
+            if (failSnapshots) failedCalls += 1;
+            return {
+              stdout: failSnapshots ? "" : "  100  9000 vim",
+              stderr: "",
+              code: ChildProcessSpawner.ExitCode(failSnapshots ? 1 : 0),
+              timedOut: false,
+              stdoutTruncated: false,
+              stderrTruncated: false,
+              stdoutInvalidUtf8: false,
+              stderrInvalidUtf8: false,
+            };
+          }),
+      };
+
+      const { manager, getEvents } = yield* createManager(5, {
+        subprocessPollIntervalMs: 20,
+      }).pipe(
+        Effect.provideService(ProcessRunner.ProcessRunner, processRunner),
+        Effect.provide(withHostPlatform("linux")),
+      );
+
+      yield* manager.open(openInput());
+      yield* waitFor(
+        Effect.map(getEvents, (events) =>
+          events.some(
+            (event) =>
+              event.type === "activity" &&
+              event.hasRunningSubprocess === true &&
+              event.label === "vim",
+          ),
+        ),
+        "1200 millis",
+      );
+
+      failSnapshots = true;
+      yield* waitFor(
+        Effect.sync(() => failedCalls >= 3),
+        "1200 millis",
+      );
+
+      // A failed snapshot is not authoritative: no terminal flips to idle.
+      const activityEvents = (yield* getEvents).filter((event) => event.type === "activity");
+      expect(activityEvents.length).toBeGreaterThan(0);
+      expect(activityEvents.every((event) => event.hasRunningSubprocess === true)).toBe(true);
+    }),
+  );
+
   it.effect("caps persisted history to configured line limit", () =>
     Effect.gen(function* () {
       const { manager, ptyAdapter } = yield* createManager(3);
@@ -967,6 +1151,25 @@ it.layer(
       const reopened = yield* manager.open(openInput());
       const nonEmptyLines = reopened.history.split("\n").filter((line) => line.length > 0);
       expect(nonEmptyLines).toEqual(["line2", "line3", "line4"]);
+    }),
+  );
+
+  it.effect("caps incrementally appended history without losing partial or empty lines", () =>
+    Effect.gen(function* () {
+      const { manager, ptyAdapter } = yield* createManager(3);
+      yield* manager.open(openInput());
+      const process = ptyAdapter.processes[0];
+      expect(process).toBeDefined();
+      if (!process) return;
+
+      process.emitData("line1\n");
+      process.emitData("\n");
+      process.emitData("line3");
+      process.emitData("-continued\nline4");
+      yield* manager.close({ threadId: "thread-1" });
+
+      const reopened = yield* manager.open(openInput());
+      expect(reopened.history).toBe("\nline3-continued\nline4");
     }),
   );
 
