@@ -441,7 +441,11 @@ function deriveWorkLogEntries(
     if (activity.kind === "task.updated" && !isTerminalTaskUpdate(activity)) continue;
     if (activity.kind === "tool.progress") continue;
     if (activity.kind === "context-window.updated") continue;
-    if (activity.kind === "account-rate-limits.updated") continue;
+    if (
+      activity.kind === "account-rate-limits.updated" ||
+      activity.summary.trim().toLowerCase() === "usage limit updated"
+    )
+      continue;
     if (
       activity.kind === "task.progress" &&
       activity.payload !== null &&
