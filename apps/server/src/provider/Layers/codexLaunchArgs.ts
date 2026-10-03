@@ -46,12 +46,3 @@ export const codexExecLaunchArgs = (launchArgs?: string) => {
 
   return execArgs;
 };
-
-export const codexSessionAppServerArgs = (
-  appServerArgs: ReadonlyArray<string> | undefined,
-  launchArgs: string | undefined,
-  options?: CodexCliProfileOptions,
-) => {
-  const launchAppServerArgs = codexAppServerArgs(launchArgs, options);
-  return appServerArgs ? [...launchAppServerArgs, ...appServerArgs] : launchAppServerArgs;
-};

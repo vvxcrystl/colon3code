@@ -16,9 +16,7 @@ import {
   normalizeModelSlug,
 } from "@t3tools/shared/model";
 import { memo, useCallback, useRef, useState } from "react";
-import type { VariantProps } from "class-variance-authority";
 import { BrainIcon, ChevronRightIcon, ZapIcon } from "lucide-react";
-import { buttonVariants } from "../ui/button";
 import { UltrafastIcon } from "../Icons";
 import {
   Menu,
@@ -693,7 +691,6 @@ export const TraitsPicker = memo(function TraitsPicker({
   modelOptions,
   allowPromptInjectedEffort = true,
   useReasoningSelector = false,
-  triggerVariant,
   planModeEnabled,
   triggerClassName,
   isComposerOwned,
@@ -704,7 +701,6 @@ export const TraitsPicker = memo(function TraitsPicker({
   TraitsPersistence & {
     size?: ComposerControlSize;
     hidden?: boolean;
-    triggerVariant?: VariantProps<typeof buttonVariants>["variant"];
   }) {
   const composerFloatingLayerProps = useComposerMenuProps();
   const [isMenuOpen, setIsMenuOpen] = useComposerMenuState(hidden);
@@ -811,7 +807,6 @@ export const TraitsPicker = memo(function TraitsPicker({
         <PopoverTrigger
           render={
             <ComposerControl
-              variant={triggerVariant ?? "ghost"}
               className={cn("shrink-0 whitespace-nowrap", triggerClassName)}
               aria-label={`Reasoning: ${reasoningLabel}`}
             />
@@ -825,8 +820,8 @@ export const TraitsPicker = memo(function TraitsPicker({
           side="top"
           align="start"
           sideOffset={8}
+          padding="none"
           className="w-56 border-0 bg-transparent p-0 shadow-none before:hidden [-webkit-backdrop-filter:none]! [--viewport-inline-padding:0] [backdrop-filter:none]!"
-          viewportClassName="rounded-xl !overflow-hidden p-0"
         >
           <div className="reasoning-selector-popup dropdown-glass model-picker-surface grid gap-3 rounded-xl p-3 font-sans text-popover-foreground shadow-xl shadow-black/20">
             <div className="flex items-center justify-between text-sm leading-none tracking-[-0.01em]">

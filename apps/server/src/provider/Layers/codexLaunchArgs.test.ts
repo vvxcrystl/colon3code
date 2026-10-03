@@ -57,3 +57,16 @@ describe("codexExecLaunchArgs", () => {
     ]);
   });
 });
+
+describe("codexAppServerArgs", () => {
+  it("puts profile and local-model flags before the app-server subcommand", () => {
+    NodeAssert.deepEqual(
+      codexAppServerArgs("--strict-config", {
+        profile: " work ",
+        oss: true,
+        localProvider: "ollama",
+      }),
+      ["--profile", "work", "--oss", "--local-provider", "ollama", "app-server", "--strict-config"],
+    );
+  });
+});
